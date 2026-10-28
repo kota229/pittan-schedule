@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="robots" content="noindex, nofollow">
+  <meta name="theme-color" content="#14a38b">
+  <title>ぴったん｜かんたん日程調整</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%2314a38b'/%3E%3Crect x='14' y='18' width='36' height='32' rx='5' fill='%23fff'/%3E%3Crect x='14' y='18' width='36' height='9' rx='4' fill='%23ffd166'/%3E%3Cpath d='M24 38l6 6 11-12' stroke='%2314a38b' stroke-width='5' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <header class="topbar">
+    <a href="#/" class="brand"><span class="logo">✓</span>ぴったん<small>日程調整</small></a>
+    <a href="#/new" class="btn sm primary">＋ 新規作成</a>
+  </header>
+  <div id="demoBanner" class="demo-banner" hidden>
+    デモモード：データはこのブラウザ内にだけ保存されます（共有はできません）。<code>js/config.js</code> に API の URL を設定すると共有できるようになります。
+  </div>
+  <main id="app" class="container"></main>
+  <footer class="footer">ぴったん — 知り合い同士のための日程調整</footer>
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+
+  <script src="js/config.js"></script>
+  <script src="js/core.js"></script>
+  <script src="js/api.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>
