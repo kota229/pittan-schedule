@@ -363,7 +363,7 @@
           ' aria-pressed="' + (st.days[key] ? 'true' : 'false') + '"><span>' + d.getDate() + '</span>' +
           (n > 1 ? '<i>' + n + '枠</i>' : '') + '</button>';
       }
-      $cal.innerHTML = html + '</div><div class="cal-legend"><span><span class="lg on"></span>選択中</span><span><span class="lg today"></span>今日</span>' +
+      $cal.innerHTML = html + '</div><div class="cal-legend"><span><span class="swatch on"></span>選択中</span><span><span class="swatch today"></span>今日</span>' +
         '<span class="sel-n">選択中：<b>' + sortedDates().length + '日</b></span></div>';
       document.getElementById('prevM').onclick = function () { st.month = new Date(m.getFullYear(), m.getMonth() - 1, 1); renderCal(); };
       document.getElementById('nextM').onclick = function () { st.month = new Date(m.getFullYear(), m.getMonth() + 1, 1); renderCal(); };

@@ -154,9 +154,9 @@ h2.sec { display: flex; align-items: center; gap: 10px; font-size: 1.1rem; margi
 .cal .day i { font-style: normal; font-size: .62rem; font-weight: 600; margin-top: 2px; }
 .cal-legend { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 16px; margin-top: 10px; font-size: .82rem; color: var(--muted); }
 .cal-legend > span { display: inline-flex; align-items: center; gap: 5px; }
-.lg { display: inline-block; width: 14px; height: 14px; border-radius: 4px; border: 2px solid transparent; }
-.lg.on { background: var(--primary); border-color: var(--primary-dark); }
-.lg.today { border-color: var(--accent); }
+.cal-legend .swatch { display: inline-block; width: 14px; height: 14px; border-radius: 4px; border: 2px solid transparent; }
+.cal-legend .swatch.on { background: var(--primary); border-color: var(--primary-dark); }
+.cal-legend .swatch.today { border-color: var(--accent); }
 .sel-n { margin-left: auto; color: var(--text); }
 .sel-n b { color: var(--primary-dark); font-size: 1rem; }
 
