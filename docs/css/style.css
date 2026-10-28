@@ -397,3 +397,26 @@ table.result.untimed { width: 100%; border-collapse: collapse; margin: 8px 0; fo
   .tl .tl-lab { min-width: 70px; padding: 0 6px; font-size: .8rem; }
   .tl td { height: 42px; min-width: 28px; width: 28px; }
 }
+
+/* ===== ○△×の3種類・参加者別の表 ===== */
+.palette { grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.pal { min-height: 56px; font-size: .8rem; flex-direction: row; gap: 6px; }
+.pal span { font-size: 1.5rem; }
+.c-yes { color: var(--yes); }
+.matrix .day-group + .day-group .day-head th { border-top: 3px solid #b8c2c8; }
+.matrix .day-head th { height: 30px; background: #f3f6f8; border-bottom: 1px solid var(--line); }
+.matrix .day-head .tl-lab { font-size: .9rem; background: #f3f6f8; }
+.matrix .day-head .tl-h { cursor: default; }
+.matrix .sum-row .tl-lab { background: #fafbfc; color: var(--muted); }
+.matrix .sum-row td { height: 32px; border-bottom: 2px solid var(--line); }
+.matrix .p-row td { height: 32px; font-size: .85rem; }
+.matrix .p-row td.cell.none { color: #c3ccd2; }
+.matrix .pname { padding: 0 4px; }
+.pn { border: none; background: none; cursor: pointer; font-weight: 700; font-size: .82rem; color: var(--text); padding: 2px 4px; border-radius: 6px; max-width: 7.5em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-decoration: underline dotted #b8c2c8; text-underline-offset: 3px; }
+.pn:hover { background: var(--primary-soft); }
+.pn.me { color: var(--primary-dark); }
+.pn.me::after { content: "（自分）"; font-weight: 400; font-size: .68rem; }
+@media (max-width: 520px) {
+  .pal { min-height: 52px; }
+  .matrix .p-row td, .matrix .sum-row td { height: 34px; }
+}
