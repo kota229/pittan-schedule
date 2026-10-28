@@ -197,160 +197,306 @@
     var editing = !!ev;
     document.title = (editing ? '日程調整を編集' : '日程調整をつくる') + '｜ぴったん';
     var now = new Date();
+    var today = todayYmd();
+    // days: { 'YYYY-MM-DD': { alldayId, slots: [{id,start,end}] } }  id は編集時に既存回答を引き継ぐため
     var st = {
-      candidates: editing ? sortCands(ev.candidates) : [],
-      useTime: false,
-      slots: [{ start: '19:00', end: '21:00' }],
+      days: {},
+      free: [],
+      useTime: true,
+      defaults: [{ start: '19:00', end: '21:00' }],
       month: new Date(now.getFullYear(), now.getMonth(), 1),
     };
     if (editing) {
-      var firstDated = st.candidates.filter(function (c) { return c.date; })[0];
-      if (firstDated) { var d0 = parseYmd(firstDated.date); st.month = new Date(d0.getFullYear(), d0.getMonth(), 1); }
-      var timed = st.candidates.filter(function (c) { return c.start; })[0];
-      if (timed) { st.useTime = true; st.slots = [{ start: timed.start, end: timed.end }]; }
+      st.useTime = ev.candidates.some(function (c) { return c.start; });
+      sortCands(ev.candidates).forEach(function (c) {
+        if (!c.date) { st.free.push({ id: c.id, label: c.label }); return; }
+        var d = st.days[c.date] || (st.days[c.date] = { alldayId: '', slots: [] });
+        if (c.start) d.slots.push({ id: c.id, start: c.start, end: c.end });
+        else d.alldayId = c.id;
+      });
+      var firstDate = Object.keys(st.days).sort()[0];
+      if (firstDate) { var d0 = parseYmd(firstDate); st.month = new Date(d0.getFullYear(), d0.getMonth(), 1); }
+      var firstSlot = ev.candidates.filter(function (c) { return c.start; })[0];
+      if (firstSlot) st.defaults = [{ start: firstSlot.start, end: firstSlot.end }];
     }
 
     $app.innerHTML =
       '<div class="page-head"><a href="' + (editing ? '#/e/' + esc(ev.id) : '#/') + '" class="back">‹ 戻る</a>' +
       '<h1>' + (editing ? '日程調整を編集' : '日程調整をつくる') + '</h1></div>' +
-      '<form id="f" class="card form" novalidate>' +
+      '<form id="f" class="form" novalidate>' +
+      '<section class="card"><h2 class="sec"><span class="sec-num">1</span>イベントの内容</h2>' +
       '<label class="field"><span class="lbl">イベント名 <em>必須</em></span>' +
       '<input id="title" maxlength="100" placeholder="例）忘年会、打ち合わせ" value="' + esc(editing ? ev.title : '') + '"></label>' +
-      '<label class="field"><span class="lbl">メモ（任意）</span>' +
-      '<textarea id="memo" rows="3" maxlength="2000" placeholder="場所・会費・連絡事項など">' + esc(editing ? ev.memo : '') + '</textarea></label>' +
-      '<div class="field"><span class="lbl">候補日程 <em>必須</em></span>' +
-      '<p class="hint">カレンダーの日付をタップすると候補に追加されます（もう一度タップで解除）。</p>' +
-      '<div class="time-box">' +
-      '<label class="switch"><input type="checkbox" id="useTime"' + (st.useTime ? ' checked' : '') + '><span></span>時間も指定する</label>' +
-      '<div id="slots"></div></div>' +
-      '<div id="cal" class="cal"></div>' +
-      '<div class="free-add"><input id="freeText" maxlength="60" placeholder="自由入力で候補を追加（例：来月中旬の平日夜）">' +
-      '<button type="button" class="btn ghost" id="freeAdd">追加</button></div>' +
-      '<div class="cand-head"><b>選択中の候補 <span id="candCount">0</span>件</b>' +
-      '<button type="button" class="link-btn" id="clearAll">すべて解除</button></div>' +
-      '<ul id="candList" class="cand-list"></ul></div>' +
-      '<label class="field"><span class="lbl">回答の締切（任意）</span>' +
-      '<input type="date" id="deadline" value="' + esc(editing ? ev.deadline : '') + '"></label>' +
-      (editing ?'<p class="hint warn">※候補を削除すると、その候補への回答も表示されなくなります。</p>' : '') +
-      '<button type="submit" class="btn primary lg block" id="submit">' + (editing ? '変更を保存する' : '作成してURLを発行する') + '</button>' +
+      '<label class="field last"><span class="lbl">メモ（任意）</span>' +
+      '<textarea id="memo" rows="3" maxlength="2000" placeholder="場所・会費・連絡事項など">' + esc(editing ? ev.memo : '') + '</textarea></label></section>' +
+
+      '<section class="card"><h2 class="sec"><span class="sec-num">2</span>候補の日付を選ぶ</h2>' +
+      '<p class="hint">日付をタップで選択／もう一度タップで解除。曜日をタップすると、その月の同じ曜日をまとめて選べます。</p>' +
+      '<div id="cal" class="cal"></div></section>' +
+
+      '<section class="card"><h2 class="sec"><span class="sec-num">3</span>時間を設定する</h2>' +
+      '<div class="seg big" id="modeSeg"><button type="button" data-mode="0">日付のみ（時間なし）</button><button type="button" data-mode="1">時間を指定する</button></div>' +
+      '<div id="defaults"></div>' +
+      '<div id="dayList"></div></section>' +
+
+      '<section class="card"><h2 class="sec"><span class="sec-num">4</span>その他の設定</h2>' +
+      '<div class="field"><span class="lbl">自由入力の候補（任意）</span>' +
+      '<div class="free-add"><input id="freeText" maxlength="60" placeholder="例）12月前半の平日夜">' +
+      '<button type="button" class="btn" id="freeAdd">追加</button></div><ul id="freeList" class="cand-list"></ul></div>' +
+      '<label class="field last"><span class="lbl">回答の締切（任意）</span>' +
+      '<input type="date" id="deadline" value="' + esc(editing ? ev.deadline : '') + '"></label></section>' +
+
+      '<section class="card summary"><div class="sum-head"><h2>候補の一覧 <span class="count" id="candCount">0件</span></h2>' +
+      '<button type="button" class="link-btn" id="clearAll">すべてクリア</button></div>' +
+      '<p class="hint">参加者にはこの内容で表示されます。</p>' +
+      '<ol id="preview" class="preview"></ol>' +
+      (editing ? '<p class="hint warn">※候補を削除・時間を変更すると、その候補へのこれまでの回答は表示されなくなります。</p>' : '') +
+      '<button type="submit" class="btn primary lg block" id="submit">' + (editing ? '変更を保存する' : '作成してURLを発行する') + '</button></section>' +
       '</form>';
 
     var $cal = document.getElementById('cal');
-    var $slots = document.getElementById('slots');
-    var $list = document.getElementById('candList');
+    var $defaults = document.getElementById('defaults');
+    var $dayList = document.getElementById('dayList');
 
-    function validSlots() {
-      if (!st.useTime) return [{ start: '', end: '' }];
-      var out = st.slots.filter(function (s) { return s.start; }).map(function (s) {
-        return { start: s.start, end: s.end && s.end > s.start ? s.end : '' };
+    function sortedDates() { return Object.keys(st.days).sort(); }
+    function copySlots(list) { return list.map(function (s) { return { id: '', start: s.start, end: s.end }; }); }
+    function slotError(s) {
+      if (!s.start) return '開始時刻を選んでください';
+      if (s.end && s.end <= s.start) return '終了は開始より後にしてください';
+      return '';
+    }
+    function dupIndex(slots) {
+      var seen = {}, dup = {};
+      slots.forEach(function (s, i) { var k = s.start + '-' + s.end; if (seen[k]) dup[i] = true; seen[k] = true; });
+      return dup;
+    }
+    function slotProblem(slots, i) { return slotError(slots[i]) || (dupIndex(slots)[i] ? '同じ時間帯が重複しています' : ''); }
+
+    function buildCandidates() {
+      var out = [];
+      sortedDates().forEach(function (date) {
+        var d = st.days[date];
+        if (!st.useTime || !d.slots.length) {
+          out.push({ id: d.alldayId, date: date, start: '', end: '', label: '' });
+          return;
+        }
+        d.slots.forEach(function (s, i) {
+          if (!slotProblem(d.slots, i)) out.push({ id: s.id, date: date, start: s.start, end: s.end, label: '' });
+        });
       });
-      return out.length ? out : [{ start: '', end: '' }];
+      out = sortCands(out);
+      st.free.forEach(function (f) { out.push({ id: f.id, date: '', start: '', end: '', label: f.label }); });
+      return out;
+    }
+    function countErrors() {
+      if (!st.useTime) return 0;
+      var n = 0;
+      sortedDates().forEach(function (date) {
+        var slots = st.days[date].slots;
+        slots.forEach(function (s, i) { if (slotProblem(slots, i)) n++; });
+      });
+      return n;
     }
 
-    function renderSlots() {
-      if (!st.useTime) { $slots.innerHTML = ''; return; }
-      $slots.innerHTML = st.slots.map(function (s, i) {
-        return '<div class="slot"><input type="time" step="900" data-i="' + i + '" data-k="start" value="' + esc(s.start) + '">' +
-          '<span>〜</span><input type="time" step="900" data-i="' + i + '" data-k="end" value="' + esc(s.end) + '">' +
-          (st.slots.length > 1 ? '<button type="button" class="icon-btn" data-del-slot="' + i + '" title="この時間帯を削除">×</button>' : '') +
-          '</div>';
-      }).join('') + '<button type="button" class="link-btn" id="addSlot">＋ 時間帯を追加（1日に複数の候補）</button>' +
-        '<p class="hint">ここで指定した時間で、タップした日付が候補になります。</p>';
-      $slots.querySelectorAll('input').forEach(function (inp) {
-        inp.onchange = function () { st.slots[+inp.dataset.i][inp.dataset.k] = inp.value; };
+    function timeSelect(value, allowEmpty) {
+      var h = value ? value.slice(0, 2) : '', m = value ? value.slice(3, 5) : '';
+      var hs = '<select class="ts-h" aria-label="時">' + (allowEmpty ? '<option value="">--</option>' : '');
+      for (var i = 0; i < 24; i++) hs += '<option' + (pad(i) === h ? ' selected' : '') + '>' + pad(i) + '</option>';
+      hs += '</select>';
+      var ms = '<select class="ts-m" aria-label="分"' + (allowEmpty && !value ? ' disabled' : '') + '>';
+      for (var j = 0; j < 60; j += 5) ms += '<option' + (pad(j) === m ? ' selected' : '') + '>' + pad(j) + '</option>';
+      ms += '</select>';
+      return '<span class="ts">' + hs + '<b>:</b>' + ms + '</span>';
+    }
+    function readTime(wrap) {
+      var h = wrap.querySelector('.ts-h').value, m = wrap.querySelector('.ts-m').value;
+      return h ? h + ':' + (m || '00') : '';
+    }
+    function slotRow(s, attrs, err) {
+      return '<div class="slot' + (err ? ' bad' : '') + '" ' + attrs + '>' +
+        '<span class="ts-wrap" data-k="start">' + timeSelect(s.start, false) + '</span><span class="tilde">〜</span>' +
+        '<span class="ts-wrap" data-k="end">' + timeSelect(s.end, true) + '</span>' +
+        '<button type="button" class="icon-btn" data-act="del" title="この時間帯を削除">×</button>' +
+        (err ? '<div class="slot-err">' + esc(err) + '</div>' : '') + '</div>';
+    }
+    function bindSlotRows(root, getList, after) {
+      root.querySelectorAll('.slot').forEach(function (row) {
+        var list = getList(row);
+        var i = +row.getAttribute('data-i');
+        row.querySelectorAll('.ts-wrap').forEach(function (w) {
+          w.querySelectorAll('select').forEach(function (sel) {
+            sel.onchange = function () { list[i][w.getAttribute('data-k')] = readTime(w); if ('id' in list[i]) list[i].id = ''; after(); };
+          });
+        });
+        row.querySelector('[data-act="del"]').onclick = function () { list.splice(i, 1); after(); };
       });
-      $slots.querySelectorAll('[data-del-slot]').forEach(function (b) {
-        b.onclick = function () { st.slots.splice(+b.getAttribute('data-del-slot'), 1); renderSlots(); };
-      });
-      document.getElementById('addSlot').onclick = function () {
-        var last = st.slots[st.slots.length - 1] || { start: '12:00', end: '13:00' };
-        st.slots.push({ start: last.start, end: last.end });
-        renderSlots();
-      };
     }
 
     function renderCal() {
       var m = st.month;
       var first = new Date(m.getFullYear(), m.getMonth(), 1);
       var start = new Date(first); start.setDate(1 - first.getDay());
-      var counts = {};
-      st.candidates.forEach(function (c) { if (c.date) counts[c.date] = (counts[c.date] || 0) + 1; });
-      var today = todayYmd();
-      var html = '<div class="cal-head"><button type="button" class="icon-btn" id="prevM" aria-label="前の月">‹</button>' +
-        '<b>' + m.getFullYear() + '年' + (m.getMonth() + 1) + '月</b>' +
-        '<button type="button" class="icon-btn" id="nextM" aria-label="次の月">›</button></div><div class="cal-grid">';
-      WD.forEach(function (w, i) { html += '<div class="wd' + (i === 0 ? ' sun' : i === 6 ? ' sat' : '') + '">' + w + '</div>'; });
+      var html = '<div class="cal-head"><button type="button" class="nav-btn" id="prevM" aria-label="前の月">‹</button>' +
+        '<b>' + m.getFullYear() + '年 ' + (m.getMonth() + 1) + '月</b>' +
+        '<button type="button" class="nav-btn" id="nextM" aria-label="次の月">›</button></div><div class="cal-grid">';
+      WD.forEach(function (w, i) {
+        html += '<button type="button" class="wd' + (i === 0 ? ' sun' : i === 6 ? ' sat' : '') + '" data-wd="' + i + '" title="' + w + '曜日をまとめて選択">' + w + '</button>';
+      });
       for (var i = 0; i < 42; i++) {
         var d = new Date(start); d.setDate(start.getDate() + i);
         if (i >= 35 && d.getMonth() !== m.getMonth()) break;
         var key = ymd(d);
         var cls = ['day'];
         if (d.getMonth() !== m.getMonth()) cls.push('other');
-        if (key < today) cls.push('past');
         if (key === today) cls.push('today');
-        if (counts[key]) cls.push('on');
+        if (st.days[key]) cls.push('on');
         if (d.getDay() === 0) cls.push('sun');
         if (d.getDay() === 6) cls.push('sat');
-        html += '<button type="button" class="' + cls.join(' ') + '" data-date="' + key + '">' + d.getDate() +
-          (counts[key] > 1 ? '<i>' + counts[key] + '</i>' : '') + '</button>';
+        var past = key < today;
+        if (past) cls.push('past');
+        var n = st.days[key] && st.useTime ? st.days[key].slots.length : 0;
+        html += '<button type="button" class="' + cls.join(' ') + '" data-date="' + key + '"' + (past ? ' disabled' : '') +
+          ' aria-pressed="' + (st.days[key] ? 'true' : 'false') + '"><span>' + d.getDate() + '</span>' +
+          (n > 1 ? '<i>' + n + '枠</i>' : '') + '</button>';
       }
-      $cal.innerHTML = html + '</div>';
+      $cal.innerHTML = html + '</div><div class="cal-legend"><span><span class="lg on"></span>選択中</span><span><span class="lg today"></span>今日</span>' +
+        '<span class="sel-n">選択中：<b>' + sortedDates().length + '日</b></span></div>';
       document.getElementById('prevM').onclick = function () { st.month = new Date(m.getFullYear(), m.getMonth() - 1, 1); renderCal(); };
       document.getElementById('nextM').onclick = function () { st.month = new Date(m.getFullYear(), m.getMonth() + 1, 1); renderCal(); };
       $cal.querySelectorAll('[data-date]').forEach(function (b) {
         b.onclick = function () { toggleDate(b.getAttribute('data-date')); };
       });
+      $cal.querySelectorAll('[data-wd]').forEach(function (b) {
+        b.onclick = function () { toggleWeekday(+b.getAttribute('data-wd')); };
+      });
     }
 
+    function addDate(date) { if (!st.days[date]) st.days[date] = { alldayId: '', slots: copySlots(st.defaults) }; }
     function toggleDate(date) {
-      var has = st.candidates.some(function (c) { return c.date === date; });
-      if (has) {
-        st.candidates = st.candidates.filter(function (c) { return c.date !== date; });
-      } else {
-        validSlots().forEach(function (s) { addCand({ date: date, start: s.start, end: s.end, label: '' }); });
+      if (st.days[date]) delete st.days[date]; else addDate(date);
+      renderAll();
+    }
+    function toggleWeekday(wd) {
+      var m = st.month, dates = [];
+      for (var d = new Date(m.getFullYear(), m.getMonth(), 1); d.getMonth() === m.getMonth(); d.setDate(d.getDate() + 1)) {
+        if (d.getDay() === wd && ymd(d) >= today) dates.push(ymd(d));
       }
+      if (!dates.length) return;
+      var allOn = dates.every(function (k) { return st.days[k]; });
+      dates.forEach(function (k) { if (allOn) delete st.days[k]; else addDate(k); });
       renderAll();
     }
 
-    function addCand(c) {
-      var dup = st.candidates.some(function (x) {
-        return x.date === c.date && x.start === c.start && x.end === c.end && x.label === c.label;
+    function renderMode() {
+      document.querySelectorAll('#modeSeg button').forEach(function (b) {
+        b.classList.toggle('on', +b.getAttribute('data-mode') === (st.useTime ? 1 : 0));
       });
-      if (!dup) st.candidates.push(c);
-      st.candidates = sortCands(st.candidates);
     }
 
-    function renderList() {
-      document.getElementById('candCount').textContent = st.candidates.length;
-      if (!st.candidates.length) {
-        $list.innerHTML = '<li class="empty">まだ候補がありません</li>';
+    function renderDefaults() {
+      if (!st.useTime) { $defaults.innerHTML = ''; return; }
+      $defaults.innerHTML = '<div class="defaults"><div class="def-head"><b>基本の時間帯</b><span class="hint">これから選ぶ日付に自動で入ります</span></div>' +
+        st.defaults.map(function (s, i) { return slotRow(s, 'data-i="' + i + '"', slotProblem(st.defaults, i)); }).join('') +
+        '<div class="def-actions"><button type="button" class="link-btn" id="addDef">＋ 時間帯を追加</button>' +
+        '<button type="button" class="btn sm" id="applyAll"' + (sortedDates().length ? '' : ' disabled') + '>選択中の全日付をこの時間にする</button></div></div>';
+      bindSlotRows($defaults, function () { return st.defaults; }, function () {
+        if (!st.defaults.length) st.defaults.push({ start: '19:00', end: '21:00' });
+        renderDefaults();
+      });
+      document.getElementById('addDef').onclick = function () {
+        var last = st.defaults[st.defaults.length - 1] || { start: '12:00', end: '13:00' };
+        st.defaults.push({ start: last.start, end: last.end });
+        renderDefaults();
+      };
+      document.getElementById('applyAll').onclick = function () {
+        if (st.defaults.some(function (s, i) { return slotProblem(st.defaults, i); })) { toast('基本の時間帯にエラーがあります', true); return; }
+        var dates = sortedDates();
+        confirmDialog('選択中の ' + dates.length + ' 日すべての時間帯を、基本の時間帯で置き換えますか？', '置き換える').then(function (ok) {
+          if (!ok) return;
+          dates.forEach(function (k) { st.days[k].slots = copySlots(st.defaults); });
+          renderAll();
+          toast('全日付に反映しました');
+        });
+      };
+    }
+
+    function renderDayList() {
+      var dates = sortedDates();
+      if (!dates.length) {
+        $dayList.innerHTML = '<p class="empty-box">②のカレンダーで日付を選ぶと、ここに日付ごとの時間が表示されます。</p>';
         return;
       }
-      $list.innerHTML = st.candidates.map(function (c, i) {
-        return '<li><span class="' + candCls(c) + '">' + esc(fmtCand(c)) + '</span>' +
-          '<button type="button" class="icon-btn" data-del="' + i + '" title="削除">×</button></li>';
+      $dayList.innerHTML = '<div class="day-list-head">日付ごとの時間（個別に変更できます）</div>' + dates.map(function (date) {
+        var d = st.days[date];
+        var body;
+        if (!st.useTime) {
+          body = '<span class="allday">時間指定なし</span>';
+        } else {
+          body = (d.slots.length ? d.slots.map(function (s, i) {
+            return slotRow(s, 'data-date="' + date + '" data-i="' + i + '"', slotProblem(d.slots, i));
+          }).join('') : '<span class="allday">時間帯なし（日付のみの候補になります）</span>') +
+            '<button type="button" class="link-btn" data-add-slot="' + date + '">＋ 時間帯を追加</button>';
+        }
+        return '<div class="day-card"><div class="day-card-head"><b class="' + candCls({ date: date }) + '">' + esc(fmtDate(date)) + '</b>' +
+          '<button type="button" class="link-btn danger-text" data-del-date="' + date + '">この日を外す</button></div>' + body + '</div>';
       }).join('');
-      $list.querySelectorAll('[data-del]').forEach(function (b) {
-        b.onclick = function () { st.candidates.splice(+b.getAttribute('data-del'), 1); renderAll(); };
+      bindSlotRows($dayList, function (row) { return st.days[row.getAttribute('data-date')].slots; }, renderAll);
+      $dayList.querySelectorAll('[data-add-slot]').forEach(function (b) {
+        b.onclick = function () {
+          var slots = st.days[b.getAttribute('data-add-slot')].slots;
+          var last = slots[slots.length - 1] || st.defaults[0] || { start: '12:00', end: '13:00' };
+          slots.push({ id: '', start: last.start, end: last.end });
+          renderAll();
+        };
+      });
+      $dayList.querySelectorAll('[data-del-date]').forEach(function (b) {
+        b.onclick = function () { delete st.days[b.getAttribute('data-del-date')]; renderAll(); };
       });
     }
 
-    function renderAll() { renderCal(); renderList(); }
+    function renderFree() {
+      var $fl = document.getElementById('freeList');
+      $fl.innerHTML = st.free.map(function (f, i) {
+        return '<li><span>' + esc(f.label) + '</span><button type="button" class="icon-btn" data-del-free="' + i + '" title="削除">×</button></li>';
+      }).join('');
+      $fl.style.display = st.free.length ? '' : 'none';
+      $fl.querySelectorAll('[data-del-free]').forEach(function (b) {
+        b.onclick = function () { st.free.splice(+b.getAttribute('data-del-free'), 1); renderFree(); renderPreview(); };
+      });
+    }
 
-    document.getElementById('useTime').onchange = function (e) { st.useTime = e.target.checked; renderSlots(); };
+    function renderPreview() {
+      var list = buildCandidates();
+      var errs = countErrors();
+      document.getElementById('candCount').textContent = list.length + '件';
+      var $p = document.getElementById('preview');
+      $p.innerHTML = list.length ? list.map(function (c) {
+        return '<li class="' + candCls(c) + '">' + esc(fmtCand(c)) + '</li>';
+      }).join('') : '<li class="none">まだ候補がありません</li>';
+      if (errs) $p.insertAdjacentHTML('beforeend', '<li class="none err-text">※ 入力エラーのある時間帯 ' + errs + ' 件は含まれていません</li>');
+    }
+
+    function renderAll() { renderCal(); renderMode(); renderDefaults(); renderDayList(); renderFree(); renderPreview(); }
+
+    document.querySelectorAll('#modeSeg button').forEach(function (b) {
+      b.onclick = function () {
+        st.useTime = b.getAttribute('data-mode') === '1';
+        if (st.useTime) sortedDates().forEach(function (k) { if (!st.days[k].slots.length) st.days[k].slots = copySlots(st.defaults); });
+        renderAll();
+      };
+    });
     document.getElementById('clearAll').onclick = function () {
-      if (!st.candidates.length) return;
-      confirmDialog('選択中の候補をすべて解除しますか？', '解除する', true).then(function (ok) {
-        if (ok) { st.candidates = []; renderAll(); }
+      confirmDialog('選択した日付と自由入力の候補をすべてクリアしますか？', 'クリアする', true).then(function (ok) {
+        if (ok) { st.days = {}; st.free = []; renderAll(); }
       });
     };
     var $free = document.getElementById('freeText');
     function freeAdd() {
       var v = $free.value.trim();
       if (!v) return;
-      addCand({ date: '', start: '', end: '', label: v });
+      if (!st.free.some(function (f) { return f.label === v; })) st.free.push({ id: '', label: v });
       $free.value = '';
-      renderAll();
+      renderFree(); renderPreview();
     }
     document.getElementById('freeAdd').onclick = freeAdd;
     $free.onkeydown = function (e) { if (e.key === 'Enter' && !e.isComposing) { e.preventDefault(); freeAdd(); } };
@@ -359,12 +505,14 @@
       e.preventDefault();
       var title = document.getElementById('title').value.trim();
       if (!title) { toast('イベント名を入力してください', true); document.getElementById('title').focus(); return; }
-      if (!st.candidates.length) { toast('候補日程を1つ以上選んでください', true); return; }
+      if (countErrors()) { toast('時間帯の入力エラーを直してください', true); $dayList.scrollIntoView({ behavior: 'smooth' }); return; }
+      var candidates = buildCandidates();
+      if (!candidates.length) { toast('候補日程を1つ以上選んでください', true); $cal.scrollIntoView({ behavior: 'smooth' }); return; }
       var payload = {
         title: title,
         memo: document.getElementById('memo').value,
         deadline: document.getElementById('deadline').value,
-        candidates: st.candidates,
+        candidates: candidates,
       };
       var btn = document.getElementById('submit');
       busy(btn, true, editing ? '保存中…' : '作成中…');
@@ -383,7 +531,6 @@
       }, function (err) { busy(btn, false); toast(err.message, true); });
     };
 
-    renderSlots();
     renderAll();
     if (!editing) document.getElementById('title').focus();
   }
