@@ -54,10 +54,13 @@ assert.strictEqual(c.event.candidates.length, 3);
 const id = c.id, tok = c.adminToken;
 const [c1, c2, c3] = c.event.candidates.map(x => x.id);
 
-const a1 = ok({ action: 'answer', id, answer: { name: '山田', comment: 'よろ', votes: { [c1]: 2, [c2]: 1, [c3]: 0, bogus: 2 } } }).answer;
-assert.deepStrictEqual(Object.keys(a1.votes).sort(), [c1, c2, c3].sort());
-ok({ action: 'answer', id, answer: { name: '佐藤', votes: { [c1]: 2 } } });
-ok({ action: 'answer', id, answer: { id: a1.id, name: '山田太郎', votes: { [c1]: 0 } } });
+// 11/3 19:00-21:00 → マス 38〜41。範囲外のマスや不正文字は '-' に
+const day = '-'.repeat(36) + '2233' + '3210' + '-'.repeat(8);
+const a1 = ok({ action: 'answer', id, answer: { name: '山田', comment: 'よろ', votes: { '2026-11-03': day, [c2]: 1, [c3]: 3, bogus: 2, [c1]: 2 } } }).answer;
+assert.strictEqual(a1.votes['2026-11-03'], '-'.repeat(38) + '3332' + '-'.repeat(6));
+assert.deepStrictEqual(Object.keys(a1.votes).sort(), ['2026-11-03', c2, c3].sort());
+ok({ action: 'answer', id, answer: { name: '佐藤', votes: { '2026-11-03': 'x'.repeat(48) } } });
+ok({ action: 'answer', id, answer: { id: a1.id, name: '山田太郎', votes: { [c2]: 0 } } });
 let g = ok({ action: 'get', id });
 assert.strictEqual(g.answers.length, 2);
 assert.strictEqual(g.answers[0].name, '山田太郎');
@@ -67,11 +70,13 @@ assert.strictEqual(ok({ action: 'get', id, adminToken: tok }).isAdmin, true);
 assert.strictEqual(ok({ action: 'get', id, adminToken: 'zzz' }).isAdmin, false);
 
 ng({ action: 'update', id, adminToken: 'bad', event: { title: 'x', candidates: [{ date: '2026-11-03' }] } }, /管理用URL/);
-ok({ action: 'confirm', id, adminToken: tok, candidateId: c2 });
-assert.strictEqual(ok({ action: 'get', id }).event.confirmedId, c2);
+ng({ action: 'confirm', id, adminToken: tok, confirmed: { date: '2026-12-31' } }, /候補にない/);
+ok({ action: 'confirm', id, adminToken: tok, confirmed: { date: '2026-11-04', start: '19:30', end: '20:30' } });
+assert.deepStrictEqual(ok({ action: 'get', id }).event.confirmed, { date: '2026-11-04', start: '19:30', end: '20:30', label: '' });
+assert.strictEqual(ok({ action: 'get', id }).apiVersion, 2);
 // 編集で確定候補を消すと確定解除
 const up = ok({ action: 'update', id, adminToken: tok, event: { title: '忘年会2', candidates: [{ id: c1, date: '2026-11-03', start: '19:00' }, { date: '2026-11-10' }] } });
-assert.strictEqual(up.event.confirmedId, '');
+assert.strictEqual(up.event.confirmed, null);
 assert.strictEqual(up.event.candidates[0].id, c1);
 
 ok({ action: 'setClosed', id, adminToken: tok, closed: true });

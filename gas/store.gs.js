@@ -13,7 +13,7 @@ function setup() {
 function doGet(e) {
   var p = (e && e.parameter) || {};
   if (!p.action) {
-    return ContentService.createTextOutput(JSON.stringify({ ok: true, data: { service: 'pittan', version: 1 } }))
+    return ContentService.createTextOutput(JSON.stringify({ ok: true, data: { service: 'pittan', version: 2 } }))
       .setMimeType(ContentService.MimeType.JSON);
   }
   return respond_(p);

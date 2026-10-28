@@ -70,14 +70,55 @@ var PittanCore = (function () {
     };
   }
 
+  // 時間指定のある候補は 30分マス単位で回答する。1日 = 48マス。
+  // votes = { 'YYYY-MM-DD': '48文字（3=◎ 2=○ 1=△ 0=× -=未回答）', '<時間なし候補ID>': 0〜3 }
+  function toIdx(t) { return +t.slice(0, 2) * 2 + Math.floor(+t.slice(3, 5) / 30); }
+  function toEndIdx(t) { var m = +t.slice(0, 2) * 60 + +t.slice(3, 5); return Math.ceil(m / 30); }
+  function cellMasks(candidates) {
+    var masks = {};
+    candidates.forEach(function (c) {
+      if (!c.date || !c.start) return;
+      var m = masks[c.date] || (masks[c.date] = []);
+      var a = toIdx(c.start), b = c.end ? toEndIdx(c.end) : a + 1;
+      for (var i = a; i < Math.min(b, 48); i++) m[i] = true;
+    });
+    return masks;
+  }
+
   function sanitizeVotes(votes, candidates) {
     var out = {};
     votes = votes || {};
-    for (var i = 0; i < candidates.length; i++) {
-      var v = votes[candidates[i].id];
-      if (v === 0 || v === 1 || v === 2) out[candidates[i].id] = v;
-    }
+    var masks = cellMasks(candidates);
+    Object.keys(masks).forEach(function (date) {
+      var v = votes[date];
+      if (typeof v !== 'string') return;
+      var s = '', any = false;
+      for (var i = 0; i < 48; i++) {
+        var ch = v.charAt(i);
+        if (masks[date][i] && '0123'.indexOf(ch) >= 0 && ch !== '') { s += ch; any = true; } else s += '-';
+      }
+      if (any) out[date] = s;
+    });
+    candidates.forEach(function (c) {
+      if (c.date && c.start) return;
+      var v = votes[c.id];
+      if (v === 0 || v === 1 || v === 2 || v === 3) out[c.id] = v;
+    });
     return out;
+  }
+
+  function sanitizeConfirmed(x, candidates) {
+    if (!x) return null;
+    var date = DATE_RE.test(x.date) ? x.date : '';
+    var label = str(x.label, LIMITS.label);
+    if (date) {
+      if (!candidates.some(function (c) { return c.date === date; })) fail('候補にない日付です');
+      var start = TIME_RE.test(x.start) ? x.start : '';
+      var end = start && TIME_RE.test(x.end) && x.end > start ? x.end : '';
+      return { date: date, start: start, end: end, label: '' };
+    }
+    if (label && candidates.some(function (c) { return !c.date && c.label === label; })) return { date: '', start: '', end: '', label: label };
+    fail('決定する日程が正しくありません');
   }
 
   function publicEvent(id, data) {
@@ -123,7 +164,7 @@ var PittanCore = (function () {
         var id;
         do { id = randomId(10); } while (store.getEvent(id));
         var token = randomId(24);
-        ev.confirmedId = '';
+        ev.confirmed = null;
         ev.closed = false;
         ev.createdAt = now();
         ev.updatedAt = ev.createdAt;
@@ -136,7 +177,7 @@ var PittanCore = (function () {
         var answers = store.listAnswers(p.id).sort(function (a, b) {
           return a.createdAt < b.createdAt ? -1 : a.createdAt > b.createdAt ? 1 : 0;
         });
-        var res = { event: publicEvent(p.id, rec.data), answers: answers };
+        var res = { event: publicEvent(p.id, rec.data), answers: answers, apiVersion: 2 };
         if (p.adminToken) res.isAdmin = p.adminToken === rec.adminToken;
         return res;
       },
@@ -148,17 +189,16 @@ var PittanCore = (function () {
         rec.data.memo = ev.memo;
         rec.data.candidates = ev.candidates;
         rec.data.deadline = ev.deadline;
-        var exists = ev.candidates.some(function (c) { return c.id === rec.data.confirmedId; });
-        if (!exists) rec.data.confirmedId = '';
+        try { rec.data.confirmed = sanitizeConfirmed(rec.data.confirmed, ev.candidates); } catch (e) { rec.data.confirmed = null; }
+        delete rec.data.confirmedId;
         save(p.id, rec);
         return { event: publicEvent(p.id, rec.data) };
       },
 
       confirm: function (p) {
         var rec = loadAdmin(p);
-        var cid = p.candidateId || '';
-        if (cid && !rec.data.candidates.some(function (c) { return c.id === cid; })) fail('候補が見つかりません');
-        rec.data.confirmedId = cid;
+        rec.data.confirmed = sanitizeConfirmed(p.confirmed, rec.data.candidates);
+        delete rec.data.confirmedId;
         save(p.id, rec);
         return { event: publicEvent(p.id, rec.data) };
       },
@@ -227,7 +267,7 @@ var PittanCore = (function () {
     };
   }
 
-  return { createRouter: createRouter, randomId: randomId, LIMITS: LIMITS };
+  return { createRouter: createRouter, randomId: randomId, cellMasks: cellMasks, toIdx: toIdx, toEndIdx: toEndIdx, LIMITS: LIMITS };
 })();
 
 /* ===== Google Apps Script 側（スプレッドシート保存＋Web API） ===== */
@@ -245,7 +285,7 @@ function setup() {
 function doGet(e) {
   var p = (e && e.parameter) || {};
   if (!p.action) {
-    return ContentService.createTextOutput(JSON.stringify({ ok: true, data: { service: 'pittan', version: 1 } }))
+    return ContentService.createTextOutput(JSON.stringify({ ok: true, data: { service: 'pittan', version: 2 } }))
       .setMimeType(ContentService.MimeType.JSON);
   }
   return respond_(p);

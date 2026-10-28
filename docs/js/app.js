@@ -3,8 +3,13 @@
 
   var $app = document.getElementById('app');
   var WD = ['日', '月', '火', '水', '木', '金', '土'];
-  var MARK = { 2: '○', 1: '△', 0: '×' };
-  var MARK_CLASS = { 2: 'yes', 1: 'maybe', 0: 'no' };
+  var MARKS = [
+    { v: 3, sym: '◎', name: '希望', cls: 'pref' },
+    { v: 2, sym: '○', name: '参加可', cls: 'yes' },
+    { v: 1, sym: '△', name: '未定', cls: 'maybe' },
+    { v: 0, sym: '×', name: '不可', cls: 'no' },
+  ];
+  var MK = { 3: MARKS[0], 2: MARKS[1], 1: MARKS[2], 0: MARKS[3] };
 
   /* ---------- 小物 ---------- */
   function esc(s) {
@@ -304,7 +309,7 @@
       for (var i = 0; i < 24; i++) hs += '<option' + (pad(i) === h ? ' selected' : '') + '>' + pad(i) + '</option>';
       hs += '</select>';
       var ms = '<select class="ts-m" aria-label="分"' + (allowEmpty && !value ? ' disabled' : '') + '>';
-      for (var j = 0; j < 60; j += 5) ms += '<option' + (pad(j) === m ? ' selected' : '') + '>' + pad(j) + '</option>';
+      for (var j = 0; j < 60; j += 30) ms += '<option' + (pad(j) === m ? ' selected' : '') + '>' + pad(j) + '</option>';
       ms += '</select>';
       return '<span class="ts">' + hs + '<b>:</b>' + ms + '</span>';
     }
@@ -573,6 +578,52 @@
     root.querySelectorAll('.url-row input').forEach(function (i) { i.onfocus = function () { i.select(); }; });
   }
 
+  /* ---------- タイムライン（30分マス）共通 ---------- */
+  function idxTime(i) { return pad(Math.floor(i / 2)) + ':' + (i % 2 ? '30' : '00'); }
+  function buildGrid(ev) {
+    var masks = PittanCore.cellMasks(ev.candidates);
+    var dates = Object.keys(masks).sort();
+    var lo = 48, hi = 0;
+    dates.forEach(function (d) {
+      masks[d].forEach(function (on, i) { if (on) { lo = Math.min(lo, i); hi = Math.max(hi, i + 1); } });
+    });
+    var untimed = sortCands(ev.candidates.filter(function (c) { return !(c.date && c.start); }));
+    return { dates: dates, masks: masks, lo: lo, hi: hi, untimed: untimed };
+  }
+  function voteAt(a, date, i) {
+    var s = a.votes && a.votes[date];
+    if (typeof s !== 'string') return -1;
+    var ch = s.charAt(i);
+    return ch >= '0' && ch <= '3' ? +ch : -1;
+  }
+  function voteOf(a, cid) {
+    var v = a.votes ? a.votes[cid] : undefined;
+    return v === 0 || v === 1 || v === 2 || v === 3 ? v : -1;
+  }
+  function rowRange(g, date, i) {
+    // i を含む連続した候補マスの範囲
+    var m = g.masks[date], s = i, e = i + 1;
+    while (s > 0 && m[s - 1]) s--;
+    while (e < 48 && m[e]) e++;
+    return { s: s, e: e };
+  }
+  function gridHtml(g, cellFn, opts) {
+    opts = opts || {};
+    var h = '<div class="tl-wrap"><table class="tl' + (opts.cls ? ' ' + opts.cls : '') + '"><thead><tr><th class="tl-lab">' + (opts.corner || '') + '</th>';
+    for (var i = g.lo; i < g.hi; i++) {
+      h += '<th class="tl-h' + (i % 2 ? ' half' : '') + '" data-col="' + i + '">' + (i % 2 ? '' : '<span>' + (i / 2) + '</span>') + '</th>';
+    }
+    h += '</tr></thead><tbody>';
+    g.dates.forEach(function (date) {
+      h += '<tr><th class="tl-lab" data-row="' + date + '"><span class="' + candCls({ date: date }) + '">' + esc(fmtDate(date)) + '</span></th>';
+      for (var i = g.lo; i < g.hi; i++) {
+        h += g.masks[date][i] ? cellFn(date, i) : '<td class="off' + (i % 2 ? ' half' : '') + '"></td>';
+      }
+      h += '</tr>';
+    });
+    return h + '</tbody></table></div>';
+  }
+
   /* ---------- 日程調整ページ（回答・集計） ---------- */
   function eventView(id, opts) {
     loading();
@@ -592,13 +643,82 @@
     });
   }
 
-  function tally(ev, answers) {
-    var t = {};
-    ev.candidates.forEach(function (c) { t[c.id] = { 2: 0, 1: 0, 0: 0 }; });
-    answers.forEach(function (a) {
-      Object.keys(a.votes || {}).forEach(function (cid) { if (t[cid]) t[cid][a.votes[cid]]++; });
+  function cellStats(answers, date, i) {
+    var st = { 3: [], 2: [], 1: [], 0: [], none: [] };
+    answers.forEach(function (a) { var v = voteAt(a, date, i); (v < 0 ? st.none : st[v]).push(a.name); });
+    return st;
+  }
+  function candStats(answers, cid) {
+    var st = { 3: [], 2: [], 1: [], 0: [], none: [] };
+    answers.forEach(function (a) { var v = voteOf(a, cid); (v < 0 ? st.none : st[v]).push(a.name); });
+    return st;
+  }
+  function bestSlots(g, answers) {
+    var runs = [];
+    var key = function (st) { return st[3].length + '/' + st[2].length + '/' + st[1].length; };
+    g.dates.forEach(function (date) {
+      var cur = null;
+      for (var i = 0; i <= 48; i++) {
+        var on = i < 48 && g.masks[date][i];
+        var st = on ? cellStats(answers, date, i) : null;
+        if (cur && (!on || key(st) !== cur.key)) { runs.push(cur); cur = null; }
+        if (on && !cur) cur = { date: date, s: i, e: i + 1, st: st, key: key(st) };
+        else if (on) cur.e = i + 1;
+      }
     });
-    return t;
+    g.untimed.forEach(function (c) { runs.push({ cand: c, st: candStats(answers, c.id) }); });
+    runs.forEach(function (r) { r.ok = r.st[3].length + r.st[2].length; });
+    return runs.filter(function (r) { return r.ok > 0; }).sort(function (a, b) {
+      return b.ok - a.ok || b.st[3].length - a.st[3].length || b.st[1].length - a.st[1].length ||
+        ((b.e - b.s) || 0) - ((a.e - a.s) || 0) || ((a.date || '') < (b.date || '') ? -1 : 1);
+    }).slice(0, 5);
+  }
+  function runLabel(r) {
+    if (r.cand) return fmtCand(r.cand);
+    return fmtDate(r.date) + ' ' + idxTime(r.s) + '〜' + idxTime(r.e);
+  }
+  function runConfirmed(r) {
+    if (r.cand) return r.cand.date ? { date: r.cand.date } : { label: r.cand.label };
+    return { date: r.date, start: idxTime(r.s), end: idxTime(r.e) };
+  }
+  function namesLine(st) {
+    return MARKS.map(function (m) {
+      return st[m.v].length ? '<span class="nm ' + m.cls + '"><b>' + m.sym + ' ' + m.name + '</b> ' + st[m.v].map(esc).join('、') + '</span>' : '';
+    }).join('') + (st.none.length ? '<span class="nm none"><b>未回答</b> ' + st.none.map(esc).join('、') + '</span>' : '');
+  }
+  function isFixedCell(ev, date, i) {
+    var c = ev.confirmed;
+    if (!c || c.date !== date) return false;
+    if (!c.start) return true;
+    var a = PittanCore.toIdx(c.start), b = c.end ? PittanCore.toEndIdx(c.end) : a + 1;
+    return i >= a && i < b;
+  }
+
+  function rangeDialog(g, date, s, e) {
+    var r = rowRange(g, date, s);
+    return new Promise(function (resolve) {
+      var opt = function (from, to, sel) {
+        var h = '';
+        for (var i = from; i <= to; i++) h += '<option value="' + i + '"' + (i === sel ? ' selected' : '') + '>' + idxTime(i) + '</option>';
+        return h;
+      };
+      var wrap = document.createElement('div');
+      wrap.className = 'modal-bg';
+      wrap.innerHTML = '<div class="modal"><h2>この時間で決定しますか？</h2><p><b>' + esc(fmtDate(date)) + '</b></p>' +
+        '<div class="slot"><span class="ts"><select id="rdS">' + opt(r.s, r.e - 1, s) + '</select></span><span class="tilde">〜</span>' +
+        '<span class="ts"><select id="rdE">' + opt(r.s + 1, r.e, e) + '</select></span></div>' +
+        '<p class="hint">参加者のページに「決定」として表示されます。</p><div class="row end">' +
+        '<button class="btn ghost" data-r="0">キャンセル</button><button class="btn primary" data-r="1">決定する</button></div></div>';
+      wrap.addEventListener('click', function (ev) {
+        var k = ev.target.getAttribute('data-r');
+        if (ev.target !== wrap && k === null) return;
+        var ss = +wrap.querySelector('#rdS').value, ee = +wrap.querySelector('#rdE').value;
+        if (k === '1' && ee <= ss) { toast('終了は開始より後にしてください', true); return; }
+        document.body.removeChild(wrap);
+        resolve(k === '1' ? { date: date, start: idxTime(ss), end: idxTime(ee) } : null);
+      });
+      document.body.appendChild(wrap);
+    });
   }
 
   function renderEvent(res, token, opts) {
@@ -606,18 +726,19 @@
     var answers = res.answers;
     var isAdmin = !!token;
     var mine = Mem.mine(ev.id);
-    var t = tally(ev, answers);
-    var cands = sortCands(ev.candidates);
-    var sortMode = opts.sort || 'date';
-    var score = function (c) { return t[c.id][2] * 1000 + t[c.id][1]; };
-    var best = Math.max.apply(null, cands.map(score));
-    if (sortMode === 'popular') cands = cands.slice().sort(function (a, b) { return score(b) - score(a); });
-    var confirmed = ev.confirmedId ? ev.candidates.filter(function (c) { return c.id === ev.confirmedId; })[0] : null;
+    var g = buildGrid(ev);
+    var confirmed = ev.confirmed || null;
     var expired = ev.deadline && ev.deadline < todayYmd();
     var closed = ev.closed || expired;
+    var viewer = opts.viewer || 'all';
+    if (viewer !== 'all' && !answers.some(function (a) { return a.id === viewer; })) viewer = 'all';
+    var total = answers.length;
     document.title = ev.title + '｜ぴったん';
 
     var html = '';
+    if (res.apiVersion !== 2) {
+      html += '<div class="card warn-box">サーバー（Apps Script）が古いバージョンです。README の「サーバー側のコードを更新したとき」の手順で更新してください。更新するまで時間帯の回答が保存されません。</div>';
+    }
     if (confirmed) {
       html += '<div class="confirmed"><div class="c-label">日程が決まりました</div><div class="c-date">' + esc(fmtCand(confirmed)) + '</div>' +
         (confirmed.date ? '<div class="share-btns center"><a class="btn" target="_blank" rel="noopener" href="' + esc(gcalUrl(ev, confirmed)) + '">Googleカレンダーに追加</a>' +
@@ -625,10 +746,79 @@
     }
     html += '<div class="card ev-head"><h1>' + esc(ev.title) + '</h1>' +
       (ev.memo ? '<div class="memo">' + linkify(ev.memo) + '</div>' : '') +
-      '<div class="meta"><span>回答 ' + answers.length + '人</span>' +
+      '<div class="meta"><span>回答 ' + total + '人</span>' +
       (ev.deadline ? '<span>締切 ' + esc(fmtDate(ev.deadline)) + (expired ? '（終了）' : '') + '</span>' : '') +
       (ev.closed ? '<span class="chip gray">受付終了</span>' : '') +
       (isAdmin ? '<span class="chip">幹事</span>' : '') + '</div></div>';
+
+    // 回答ボタン（上に置く）
+    if (closed && !isAdmin) {
+      html += '<div class="card center closed-msg">' + (ev.closed ? 'この日程調整は回答の受付を終了しました。' : '回答の締切を過ぎています。') + '</div>';
+    } else {
+      html += '<div id="answerArea"><button class="btn primary lg block" id="openAnswer">出欠を入力する</button></div>';
+    }
+
+    // おすすめ
+    var best = bestSlots(g, answers);
+    if (best.length) {
+      html += '<div class="card"><h2>みんなの都合がいい時間</h2><ol class="best">' + best.map(function (r, k) {
+        return '<li><div class="best-main"><b>' + esc(runLabel(r)) + '</b>' +
+          (confirmed && JSON.stringify(runConfirmed(r)) === JSON.stringify({ date: confirmed.date, start: confirmed.start, end: confirmed.end }) ? '<span class="tag">決定</span>' : '') +
+          '<span class="best-n"><span class="yes">○ ' + r.ok + '人</span>' + (r.st[3].length ? '<span class="pref">（◎' + r.st[3].length + '）</span>' : '') +
+          (r.st[1].length ? '<span class="maybe">△ ' + r.st[1].length + '</span>' : '') + '<span class="of">/ ' + total + '人</span></span></div>' +
+          (isAdmin ? '<button class="mini-btn" data-best="' + k + '">この時間で決定</button>' : '') + '</li>';
+      }).join('') + '</ol><p class="hint">○の人数（◎希望を含む）が多い順です。</p></div>';
+    }
+
+    // タイムライン集計
+    html += '<div class="card"><div class="table-head"><h2>みんなの回答</h2>' +
+      '<label class="viewer">表示：<select id="viewer"><option value="all">全員の集計</option>' +
+      answers.map(function (a) { return '<option value="' + esc(a.id) + '"' + (viewer === a.id ? ' selected' : '') + '>' + esc(a.name) + ' さん</option>'; }).join('') +
+      '</select></label></div>';
+    if (g.dates.length) {
+      var who = viewer === 'all' ? null : answers.filter(function (a) { return a.id === viewer; })[0];
+      var maxOk = 0;
+      if (!who) g.dates.forEach(function (d) {
+        for (var i = g.lo; i < g.hi; i++) if (g.masks[d][i]) maxOk = Math.max(maxOk, cellStats(answers, d, i)[3].length + cellStats(answers, d, i)[2].length);
+      });
+      html += gridHtml(g, function (date, i) {
+        var fixed = isFixedCell(ev, date, i) ? ' fixed' : '';
+        var half = i % 2 ? ' half' : '';
+        if (who) {
+          var v = voteAt(who, date, i);
+          return '<td class="cell ' + (v < 0 ? 'none' : MK[v].cls) + half + fixed + '" data-d="' + date + '" data-i="' + i + '">' + (v < 0 ? '' : MK[v].sym) + '</td>';
+        }
+        var st = cellStats(answers, date, i);
+        var okN = st[3].length + st[2].length;
+        var ratio = total ? okN / total : 0;
+        var bg = okN ? 'background:rgba(20,163,139,' + (0.15 + 0.8 * ratio).toFixed(2) + ');' + (ratio > 0.55 ? 'color:#fff;' : '') : '';
+        return '<td class="cell hm' + half + fixed + (okN && okN === maxOk ? ' top' : '') + '" style="' + bg + '" data-d="' + date + '" data-i="' + i + '">' +
+          (okN || '') + (st[1].length ? '<i>△' + st[1].length + '</i>' : '') + '</td>';
+      }, { cls: 'result-tl', corner: '<span class="hint">時</span>' });
+      html += '<div class="tl-legend">' + (who ? MARKS.map(function (m) { return '<span><span class="sw ' + m.cls + '">' + m.sym + '</span>' + m.name + '</span>'; }).join('') :
+        '<span><span class="sw hm1"></span>少ない</span><span><span class="sw hm2"></span>多い</span><span>数字＝○の人数（◎含む）</span><span><span class="sw top"></span>最多</span>') +
+        (confirmed ? '<span><span class="sw fixed"></span>決定</span>' : '') + '</div>';
+      html += '<div id="cellInfo" class="cell-info hint">マスをタップすると、誰が参加できるか表示されます。</div>';
+    }
+    if (g.untimed.length) {
+      html += '<table class="result untimed"><tbody>' + g.untimed.map(function (c) {
+        var st = candStats(answers, c.id);
+        var isFix = confirmed && ((c.date && confirmed.date === c.date && !confirmed.start) || (!c.date && confirmed.label === c.label));
+        return '<tr' + (isFix ? ' class="fixed"' : '') + '><th class="' + candCls(c) + '">' + esc(fmtCand(c)) + (isFix ? '<span class="tag">決定</span>' : '') + '</th><td>' + namesLine(st) + '</td></tr>';
+      }).join('') + '</tbody></table>';
+    }
+    html += '<div class="people"><span class="lbl">回答した人（タップで回答を修正）</span>' +
+      (answers.length ? answers.map(function (a) {
+        return '<button class="person' + (mine.indexOf(a.id) >= 0 ? ' me' : '') + '" data-edit="' + esc(a.id) + '">' + esc(a.name) + '</button>';
+      }).join('') : '<p class="empty">まだ回答がありません。最初の回答をどうぞ！</p>') + '</div>' +
+      '<div class="row end"><button class="link-btn" id="reload">↻ 最新の状態に更新</button></div></div>';
+
+    var withComment = answers.filter(function (a) { return a.comment; });
+    if (withComment.length) {
+      html += '<div class="card"><h2>コメント</h2><ul class="comments">' + withComment.map(function (a) {
+        return '<li><b>' + esc(a.name) + '</b><p>' + linkify(a.comment) + '</p></li>';
+      }).join('') + '</ul></div>';
+    }
 
     if (isAdmin) {
       html += '<div class="card admin"><h2>幹事メニュー</h2><div class="admin-btns">' +
@@ -637,50 +827,7 @@
         (confirmed ? '<button class="btn" id="unconfirm">決定を取り消す</button>' : '') +
         '<button class="btn" id="copyAdmin">幹事用URLをコピー</button>' +
         '<button class="btn danger-ghost" id="removeEv">削除</button></div>' +
-        '<p class="hint">表の日程にある「決定」ボタンで日程を確定できます。</p></div>';
-    }
-
-    // 集計表
-    html += '<div class="card"><div class="table-head"><h2>みんなの回答</h2>' +
-      '<div class="seg small"><button class="' + (sortMode === 'date' ? 'on' : '') + '" data-sort="date">日付順</button>' +
-      '<button class="' + (sortMode === 'popular' ? 'on' : '') + '" data-sort="popular">○が多い順</button></div></div>' +
-      '<div class="table-wrap"><table class="result"><thead><tr><th class="sticky">日程</th>' +
-      '<th class="n yes">○</th><th class="n maybe">△</th><th class="n no">×</th>' +
-      answers.map(function (a) {
-        return '<th class="name"><button class="name-btn' + (mine.indexOf(a.id) >= 0 ? ' me' : '') + '" data-edit="' + esc(a.id) + '" title="クリックで回答を編集">' + esc(a.name) + '</button></th>';
-      }).join('') + '</tr></thead><tbody>' +
-      cands.map(function (c) {
-        var rowCls = [];
-        if (best > 0 && score(c) === best) rowCls.push('best');
-        if (confirmed && confirmed.id === c.id) rowCls.push('fixed');
-        return '<tr class="' + rowCls.join(' ') + '"><th class="sticky"><span class="' + candCls(c) + '">' + esc(fmtCand(c)) + '</span>' +
-          (confirmed && confirmed.id === c.id ? '<span class="tag">決定</span>' : (best > 0 && score(c) === best ? '<span class="tag best-tag">最多</span>' : '')) +
-          (isAdmin && (!confirmed || confirmed.id !== c.id) ? '<button class="mini-btn" data-confirm="' + esc(c.id) + '">決定</button>' : '') + '</th>' +
-          '<td class="n yes">' + t[c.id][2] + '</td><td class="n maybe">' + t[c.id][1] + '</td><td class="n no">' + t[c.id][0] + '</td>' +
-          answers.map(function (a) {
-            var v = a.votes ? a.votes[c.id] : undefined;
-            return v === undefined ? '<td class="v none">−</td>' : '<td class="v ' + MARK_CLASS[v] + '">' + MARK[v] + '</td>';
-          }).join('') + '</tr>';
-      }).join('') +
-      (answers.some(function (a) { return a.comment; }) ? '<tr class="comment-row"><th class="sticky">コメント</th><td colspan="3"></td>' +
-        answers.map(function (a) { return '<td class="cmt">' + esc(a.comment) + '</td>'; }).join('') + '</tr>' : '') +
-      '</tbody></table></div>' +
-      (answers.length ? '<p class="hint">名前をタップすると、その回答を編集できます。</p>' : '<p class="empty">まだ回答がありません。最初の回答をどうぞ！</p>') +
-      '<div class="row end"><button class="link-btn" id="reload">↻ 最新の状態に更新</button></div></div>';
-
-    // 回答ボタン
-    if (closed && !isAdmin) {
-      html += '<div class="card center closed-msg">' + (ev.closed ? 'この日程調整は回答の受付を終了しました。' : '回答の締切を過ぎています。') + '</div>';
-    } else {
-      html += '<div id="answerArea"><button class="btn primary lg block" id="openAnswer">○△× で回答する</button></div>';
-    }
-
-    // コメント一覧
-    var withComment = answers.filter(function (a) { return a.comment; });
-    if (withComment.length) {
-      html += '<div class="card"><h2>コメント</h2><ul class="comments">' + withComment.map(function (a) {
-        return '<li><b>' + esc(a.name) + '</b><p>' + linkify(a.comment) + '</p></li>';
-      }).join('') + '</ul></div>';
+        '<p class="hint">日程の決定は「みんなの都合がいい時間」の「この時間で決定」か、集計のマスをタップして行えます。</p></div>';
     }
 
     html += '<div class="card">' + shareBox(eventUrl(ev.id), 'このページのURLを共有', ev) + '</div>';
@@ -688,12 +835,34 @@
     bindShare($app);
 
     var rerender = function (o) { renderEvent(res, token, Object.assign({}, opts, o, { adminLanding: false })); };
-    var reload = function () { eventView(ev.id, { sort: sortMode }); };
+    var reload = function () { eventView(ev.id, { viewer: viewer }); };
+    var doConfirm = function (c) {
+      return Api.call('confirm', { id: ev.id, adminToken: token, confirmed: c }).then(function () {
+        toast(c ? '日程を決定しました' : '決定を取り消しました'); reload();
+      }, function (e) { toast(e.message, true); });
+    };
 
-    $app.querySelectorAll('[data-sort]').forEach(function (b) { b.onclick = function () { rerender({ sort: b.getAttribute('data-sort') }); }; });
     document.getElementById('reload').onclick = reload;
+    var vs = document.getElementById('viewer');
+    if (vs) vs.onchange = function () { rerender({ viewer: vs.value }); };
     var icsBtn = document.getElementById('ics');
     if (icsBtn) icsBtn.onclick = function () { downloadIcs(ev, confirmed); };
+
+    $app.querySelectorAll('.result-tl td.cell').forEach(function (td) {
+      td.onclick = function () {
+        var date = td.getAttribute('data-d'), i = +td.getAttribute('data-i');
+        $app.querySelectorAll('.result-tl td.sel').forEach(function (x) { x.classList.remove('sel'); });
+        td.classList.add('sel');
+        var info = document.getElementById('cellInfo');
+        info.className = 'cell-info';
+        info.innerHTML = '<b>' + esc(fmtDate(date)) + ' ' + idxTime(i) + '〜' + idxTime(i + 1) + '</b><div>' + namesLine(cellStats(answers, date, i)) + '</div>' +
+          (isAdmin ? '<button class="mini-btn" id="cellConfirm">この時間帯で決定…</button>' : '');
+        var cb = document.getElementById('cellConfirm');
+        if (cb) cb.onclick = function () {
+          rangeDialog(g, date, i, i + 1).then(function (c) { if (c) doConfirm(c); });
+        };
+      };
+    });
 
     var openAnswer = document.getElementById('openAnswer');
     if (openAnswer) openAnswer.onclick = function () { answerForm(ev, null, token, reload); };
@@ -706,21 +875,23 @@
     });
 
     if (isAdmin) {
+      $app.querySelectorAll('[data-best]').forEach(function (b) {
+        b.onclick = function () {
+          var r = best[+b.getAttribute('data-best')];
+          if (r.cand) {
+            confirmDialog('「' + runLabel(r) + '」に決定しますか？\n参加者のページにも表示されます。', '決定する').then(function (ok) { if (ok) doConfirm(runConfirmed(r)); });
+          } else {
+            rangeDialog(g, r.date, r.s, r.e).then(function (c) { if (c) doConfirm(c); });
+          }
+        };
+      });
       var act = function (action, params, msg) {
         return Api.call(action, Object.assign({ id: ev.id, adminToken: token }, params)).then(function () {
           toast(msg); reload();
         }, function (e) { toast(e.message, true); });
       };
-      $app.querySelectorAll('[data-confirm]').forEach(function (b) {
-        b.onclick = function () {
-          var c = ev.candidates.filter(function (x) { return x.id === b.getAttribute('data-confirm'); })[0];
-          confirmDialog('「' + fmtCand(c) + '」に決定しますか？\n参加者のページにも表示されます。', '決定する').then(function (ok) {
-            if (ok) act('confirm', { candidateId: c.id }, '日程を決定しました');
-          });
-        };
-      });
       var un = document.getElementById('unconfirm');
-      if (un) un.onclick = function () { act('confirm', { candidateId: '' }, '決定を取り消しました'); };
+      if (un) un.onclick = function () { doConfirm(null); };
       document.getElementById('toggleClose').onclick = function () {
         act('setClosed', { closed: !ev.closed }, ev.closed ? '受付を再開しました' : '受付を終了しました');
       };
@@ -736,43 +907,133 @@
     }
   }
 
-  /* ---------- 回答フォーム ---------- */
+  /* ---------- 回答フォーム（ドラッグで塗る） ---------- */
   function answerForm(ev, existing, token, onDone) {
     var area = document.getElementById('answerArea');
-    if (!area) {
-      // 受付終了後に幹事以外は開けない。幹事は回答エリアがあるので通常ここには来ない
-      return;
-    }
-    var cands = sortCands(ev.candidates);
-    var votes = {};
-    if (existing) Object.keys(existing.votes || {}).forEach(function (k) { votes[k] = existing.votes[k]; });
-    area.innerHTML = '<form class="card answer" id="af" novalidate><h2>' + (existing ? esc(existing.name) + ' さんの回答を編集' : '出欠を入力') + '</h2>' +
+    if (!area) return;
+    var g = buildGrid(ev);
+    // cells[date][i] = -1..3 / un[cid] = -1..3
+    var cells = {}, un = {};
+    g.dates.forEach(function (d) {
+      cells[d] = [];
+      for (var i = 0; i < 48; i++) cells[d][i] = existing ? voteAt(existing, d, i) : -1;
+    });
+    g.untimed.forEach(function (c) { un[c.id] = existing ? voteOf(existing, c.id) : -1; });
+    var mode = 2;
+
+    var palette = '<div class="palette" id="palette">' + MARKS.map(function (m) {
+      return '<button type="button" class="pal ' + m.cls + '" data-mode="' + m.v + '"><span>' + m.sym + '</span>' + m.name + '</button>';
+    }).join('') + '<button type="button" class="pal erase" data-mode="-1"><span>⌫</span>消す</button>' +
+      '<button type="button" class="pal move" data-mode="move"><span>✋</span>移動</button></div>';
+
+    area.innerHTML = '<form class="card answer" id="af" novalidate><h2>' + (existing ? esc(existing.name) + ' さんの回答を修正' : '出欠を入力') + '</h2>' +
       '<label class="field"><span class="lbl">お名前 <em>必須</em></span><input id="aName" maxlength="40" value="' + esc(existing ? existing.name : Mem.name()) + '" placeholder="例）山田"></label>' +
-      '<div class="field"><div class="cand-head"><span class="lbl">各日程のご都合</span><span class="bulk">' +
-      '<button type="button" class="link-btn" data-all="2">すべて○</button><button type="button" class="link-btn" data-all="0">すべて×</button></span></div>' +
-      '<ul class="vote-list">' + cands.map(function (c) {
+      '<div class="field"><span class="lbl">参加できる時間を塗ってください</span>' +
+      '<p class="hint">① 下のボタンで ◎○△× を選ぶ → ② マスをなぞる（ドラッグ）とまとめて塗れます。日付や時刻の見出しをタップすると、その行・列をまとめて塗れます。</p>' +
+      '<div class="palette-wrap">' + palette + '</div>' +
+      (g.dates.length ? gridHtml(g, function (date, i) {
+        var v = cells[date][i];
+        return '<td class="cell ' + (v < 0 ? 'none' : MK[v].cls) + (i % 2 ? ' half' : '') + '" data-d="' + date + '" data-i="' + i + '">' + (v < 0 ? '' : MK[v].sym) + '</td>';
+      }, { cls: 'paint', corner: '<span class="hint">時</span>' }) : '') +
+      (g.untimed.length ? '<ul class="vote-list">' + g.untimed.map(function (c) {
         return '<li><span class="vl ' + candCls(c) + '">' + esc(fmtCand(c)) + '</span><span class="seg vote" data-cid="' + esc(c.id) + '">' +
-          [2, 1, 0].map(function (v) {
-            return '<button type="button" class="' + MARK_CLASS[v] + (votes[c.id] === v ? ' on' : '') + '" data-v="' + v + '" aria-label="' + MARK[v] + '">' + MARK[v] + '</button>';
-          }).join('') + '</span></li>';
-      }).join('') + '</ul></div>' +
+          MARKS.map(function (m) { return '<button type="button" class="' + m.cls + '" data-v="' + m.v + '" aria-label="' + m.name + '">' + m.sym + '</button>'; }).join('') +
+          '</span></li>';
+      }).join('') + '</ul>' : '') +
+      '<div class="row between wrap"><span class="hint" id="remain"></span><span><button type="button" class="link-btn" id="fillNo">未入力をすべて×にする</button>' +
+      '<button type="button" class="link-btn" id="clearAllV">すべて消す</button></span></div></div>' +
       '<label class="field"><span class="lbl">コメント（任意）</span><textarea id="aComment" rows="2" maxlength="500" placeholder="例）19時以降なら参加できます">' + esc(existing ? existing.comment : '') + '</textarea></label>' +
       '<button type="submit" class="btn primary lg block" id="aSubmit">' + (existing ? '回答を更新する' : '回答する') + '</button>' +
       '<div class="row between"><button type="button" class="link-btn" id="aCancel">キャンセル</button>' +
       (existing ? '<button type="button" class="link-btn danger-text" id="aDelete">この回答を削除</button>' : '') + '</div></form>';
 
-    function paint() {
+    var table = area.querySelector('table.tl');
+
+    function paintTd(td, v) {
+      var d = td.getAttribute('data-d'), i = +td.getAttribute('data-i');
+      cells[d][i] = v;
+      td.className = 'cell ' + (v < 0 ? 'none' : MK[v].cls) + (i % 2 ? ' half' : '');
+      td.textContent = v < 0 ? '' : MK[v].sym;
+    }
+    function remaining() {
+      var n = 0;
+      g.dates.forEach(function (d) { for (var i = 0; i < 48; i++) if (g.masks[d][i] && cells[d][i] < 0) n++; });
+      g.untimed.forEach(function (c) { if (un[c.id] < 0) n++; });
+      return n;
+    }
+    function updateRemain() {
+      var n = remaining();
+      document.getElementById('remain').textContent = n ? '未入力 ' + n + 'マス' : '✓ すべて入力済み';
+    }
+    function paintUntimed() {
       area.querySelectorAll('.seg.vote').forEach(function (seg) {
         var cid = seg.getAttribute('data-cid');
-        seg.querySelectorAll('button').forEach(function (b) { b.classList.toggle('on', votes[cid] === +b.getAttribute('data-v')); });
+        seg.querySelectorAll('button').forEach(function (b) { b.classList.toggle('on', un[cid] === +b.getAttribute('data-v')); });
+      });
+    }
+    function setMode(m) {
+      mode = m;
+      area.querySelectorAll('.pal').forEach(function (b) { b.classList.toggle('on', b.getAttribute('data-mode') === String(m)); });
+      if (table) table.classList.toggle('moving', m === 'move');
+    }
+    area.querySelectorAll('.pal').forEach(function (b) {
+      b.onclick = function () { var m = b.getAttribute('data-mode'); setMode(m === 'move' ? 'move' : +m); };
+    });
+
+    if (table) {
+      var painting = false;
+      var cellFromPoint = function (x, y) {
+        var el = document.elementFromPoint(x, y);
+        return el && el.closest ? el.closest('table.paint td.cell') : null;
+      };
+      table.addEventListener('pointerdown', function (e) {
+        if (mode === 'move') return;
+        var td = e.target.closest('td.cell');
+        if (!td) return;
+        e.preventDefault();
+        painting = true;
+        paintTd(td, mode);
+      });
+      document.addEventListener('pointermove', function onMove(e) {
+        if (!document.body.contains(table)) { document.removeEventListener('pointermove', onMove); return; }
+        if (!painting) return;
+        var td = cellFromPoint(e.clientX, e.clientY);
+        if (td) paintTd(td, mode);
+      });
+      var stop = function () { if (painting) { painting = false; updateRemain(); } };
+      document.addEventListener('pointerup', stop);
+      document.addEventListener('pointercancel', stop);
+      // 見出しで行・列をまとめて塗る
+      table.querySelectorAll('th.tl-lab[data-row]').forEach(function (th) {
+        th.onclick = function () {
+          if (mode === 'move') return;
+          table.querySelectorAll('td.cell[data-d="' + th.getAttribute('data-row') + '"]').forEach(function (td) { paintTd(td, mode); });
+          updateRemain();
+        };
+      });
+      table.querySelectorAll('th.tl-h').forEach(function (th) {
+        th.onclick = function () {
+          if (mode === 'move') return;
+          table.querySelectorAll('td.cell[data-i="' + th.getAttribute('data-col') + '"]').forEach(function (td) { paintTd(td, mode); });
+          updateRemain();
+        };
       });
     }
     area.querySelectorAll('.seg.vote button').forEach(function (b) {
-      b.onclick = function () { votes[b.parentNode.getAttribute('data-cid')] = +b.getAttribute('data-v'); paint(); };
+      b.onclick = function () { un[b.parentNode.getAttribute('data-cid')] = +b.getAttribute('data-v'); paintUntimed(); updateRemain(); };
     });
-    area.querySelectorAll('[data-all]').forEach(function (b) {
-      b.onclick = function () { var v = +b.getAttribute('data-all'); cands.forEach(function (c) { votes[c.id] = v; }); paint(); };
-    });
+    document.getElementById('fillNo').onclick = function () {
+      area.querySelectorAll('table.paint td.cell').forEach(function (td) {
+        if (cells[td.getAttribute('data-d')][+td.getAttribute('data-i')] < 0) paintTd(td, 0);
+      });
+      g.untimed.forEach(function (c) { if (un[c.id] < 0) un[c.id] = 0; });
+      paintUntimed(); updateRemain();
+    };
+    document.getElementById('clearAllV').onclick = function () {
+      area.querySelectorAll('table.paint td.cell').forEach(function (td) { paintTd(td, -1); });
+      g.untimed.forEach(function (c) { un[c.id] = -1; });
+      paintUntimed(); updateRemain();
+    };
     document.getElementById('aCancel').onclick = function () { onDone(); };
     var del = document.getElementById('aDelete');
     if (del) del.onclick = function () {
@@ -783,18 +1044,28 @@
         }, function (e) { toast(e.message, true); });
       });
     };
+
+    function payloadVotes() {
+      var votes = {};
+      g.dates.forEach(function (d) {
+        var s = '';
+        for (var i = 0; i < 48; i++) s += cells[d][i] < 0 ? '-' : String(cells[d][i]);
+        if (/[0-3]/.test(s)) votes[d] = s;
+      });
+      g.untimed.forEach(function (c) { if (un[c.id] >= 0) votes[c.id] = un[c.id]; });
+      return votes;
+    }
     document.getElementById('af').onsubmit = function (e) {
       e.preventDefault();
       var name = document.getElementById('aName').value.trim();
       if (!name) { toast('お名前を入力してください', true); document.getElementById('aName').focus(); return; }
-      var missing = cands.filter(function (c) { return votes[c.id] === undefined; }).length;
       var go = function () {
         var btn = document.getElementById('aSubmit');
         busy(btn, true);
         Api.call('answer', {
           id: ev.id,
           adminToken: token || undefined,
-          answer: { id: existing ? existing.id : undefined, name: name, comment: document.getElementById('aComment').value, votes: votes },
+          answer: { id: existing ? existing.id : undefined, name: name, comment: document.getElementById('aComment').value, votes: payloadVotes() },
         }).then(function (r) {
           Mem.addMine(ev.id, r.answer.id);
           if (!existing) Mem.setName(name);
@@ -802,10 +1073,17 @@
           onDone();
         }, function (err) { busy(btn, false); toast(err.message, true); });
       };
-      if (missing) {
-        confirmDialog('未入力の日程が ' + missing + ' 件あります。このまま送信しますか？', '送信する').then(function (ok) { if (ok) go(); });
+      var n = remaining();
+      if (n) {
+        confirmDialog('未入力のマスが ' + n + ' 個あります。\n未入力を「×（不可）」にして送信しますか？', '×にして送信').then(function (ok) {
+          if (ok) { document.getElementById('fillNo').click(); go(); }
+        });
       } else go();
     };
+
+    setMode(2);
+    paintUntimed();
+    updateRemain();
     area.scrollIntoView({ behavior: 'smooth', block: 'start' });
     if (!existing && !Mem.name()) document.getElementById('aName').focus({ preventScroll: true });
   }
@@ -833,7 +1111,7 @@
     var r = calRange(c);
     var escI = function (s) { return String(s).replace(/\\/g, '\\\\').replace(/\n/g, '\\n').replace(/[,;]/g, '\\$&'); };
     var lines = ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//pittan//JP', 'BEGIN:VEVENT',
-      'UID:' + ev.id + '-' + c.id + '@pittan', 'DTSTAMP:' + new Date().toISOString().replace(/[-:]/g, '').replace(/\.\d+/, ''),
+      'UID:' + ev.id + '-' + (c.date || '') + (c.start || '').replace(':', '') + '@pittan', 'DTSTAMP:' + new Date().toISOString().replace(/[-:]/g, '').replace(/\.\d+/, ''),
       r.allDay ? 'DTSTART;VALUE=DATE:' + r.s : 'DTSTART;TZID=Asia/Tokyo:' + r.s,
       r.allDay ? 'DTEND;VALUE=DATE:' + r.e : 'DTEND;TZID=Asia/Tokyo:' + r.e,
       'SUMMARY:' + escI(ev.title), 'DESCRIPTION:' + escI((ev.memo ? ev.memo + '\n\n' : '') + eventUrl(ev.id)),
