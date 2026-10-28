@@ -420,3 +420,35 @@ table.result.untimed { width: 100%; border-collapse: collapse; margin: 8px 0; fo
   .pal { min-height: 52px; }
   .matrix .p-row td, .matrix .sum-row td { height: 34px; }
 }
+
+/* ===== PC 向け：表を横幅いっぱいに収める ===== */
+.container.wide { max-width: 1240px; }
+table.tl { width: 100%; table-layout: fixed; }
+.tl .tl-lab, .tl .tl-h, .tl td, .tl td.half { min-width: 0; width: auto; }
+.tl .tl-lab { overflow: hidden; text-overflow: ellipsis; }
+.tl td { height: 34px; font-size: .85rem; }
+.matrix .p-row td, .matrix .sum-row td { height: 28px; }
+.matrix .day-head th { height: 26px; }
+.tl .tl-h span { font-size: .7rem; }
+
+.answer h2 { margin-bottom: 8px; }
+.ans-top { display: flex; flex-wrap: wrap; gap: 0 20px; align-items: flex-end; }
+.ans-top .field { margin-bottom: 8px; }
+.ans-name { flex: 0 0 220px; }
+.ans-pal { flex: 1 1 380px; }
+.ans-pal .palette-wrap { padding: 0; }
+.pal { min-height: 46px; }
+.ans-hint { margin: 2px 0 6px; }
+.ans-hint .link-btn { margin-left: 8px; }
+.ans-bottom { display: flex; flex-wrap: wrap; gap: 0 20px; align-items: flex-end; margin-top: 12px; }
+.ans-cmt { flex: 1 1 320px; margin-bottom: 0; }
+.ans-cmt textarea { min-height: 52px; }
+.ans-actions { flex: 0 0 260px; }
+.ans-actions .btn.block { margin: 0 0 2px; }
+@media (max-width: 720px) {
+  .ans-name, .ans-pal, .ans-cmt, .ans-actions { flex-basis: 100%; }
+  .ans-cmt { margin-bottom: 12px; }
+  .tl td { height: 40px; }
+  .matrix .p-row td, .matrix .sum-row td { height: 32px; }
+}
+#answerArea { scroll-margin-top: 64px; }

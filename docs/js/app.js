@@ -133,6 +133,7 @@
   /* ---------- ルーター ---------- */
   function route() {
     window.scrollTo(0, 0);
+    $app.className = 'container';
     var parts = location.hash.replace(/^#\/?/, '').split('/').filter(Boolean);
     if (parts[0] === 'new') return formView(null);
     if (parts[0] === 'e' && parts[1]) {
@@ -606,9 +607,14 @@
     while (e < 48 && m[e]) e++;
     return { s: s, e: e };
   }
+  // 表は横幅いっぱいに収める（PC想定）。1マス22px未満になる狭い画面だけ横スクロール
+  var TL_LABEL_W = 104, TL_CELL_MIN = 22;
+  function tlMinWidth(g) { return TL_LABEL_W + (g.hi - g.lo) * TL_CELL_MIN; }
+  function tlCols(g) { return '<colgroup><col style="width:' + TL_LABEL_W + 'px"><col span="' + (g.hi - g.lo) + '"></colgroup>'; }
   function gridHtml(g, cellFn, opts) {
     opts = opts || {};
-    var h = '<div class="tl-wrap"><table class="tl' + (opts.cls ? ' ' + opts.cls : '') + '"><thead><tr><th class="tl-lab">' + (opts.corner || '') + '</th>';
+    var h = '<div class="tl-wrap"><table class="tl' + (opts.cls ? ' ' + opts.cls : '') + '" style="min-width:' + tlMinWidth(g) + 'px">' + tlCols(g) +
+      '<thead><tr><th class="tl-lab">' + (opts.corner || '') + '</th>';
     for (var i = g.lo; i < g.hi; i++) {
       h += '<th class="tl-h' + (i % 2 ? ' half' : '') + '" data-col="' + i + '">' + (i % 2 ? '' : '<span>' + (i / 2) + '</span>') + '</th>';
     }
@@ -731,6 +737,7 @@
     var closed = ev.closed || expired;
     var total = answers.length;
     document.title = ev.title + '｜ぴったん';
+    $app.className = 'container wide';
 
     var html = '';
     if (res.apiVersion !== 2) {
@@ -775,7 +782,7 @@
         for (var i = g.lo; i < g.hi; i++) if (g.masks[d][i]) { var s0 = cellStats(answers, d, i); maxOk = Math.max(maxOk, s0[3].length + s0[2].length); }
       });
       var off = function (i) { return '<td class="off' + (i % 2 ? ' half' : '') + '"></td>'; };
-      html += '<div class="tl-wrap"><table class="tl result-tl matrix">';
+      html += '<div class="tl-wrap"><table class="tl result-tl matrix" style="min-width:' + tlMinWidth(g) + 'px">' + tlCols(g);
       g.dates.forEach(function (date) {
         html += '<tbody class="day-group"><tr class="day-head"><th class="tl-lab"><span class="' + candCls({ date: date }) + '">' + esc(fmtDate(date)) + '</span></th>';
         for (var i = g.lo; i < g.hi; i++) html += '<th class="tl-h' + (i % 2 ? ' half' : '') + '">' + (i % 2 ? '' : '<span>' + (i / 2) + '</span>') + '</th>';
@@ -928,10 +935,10 @@
     }).join('') + '</div>';
 
     area.innerHTML = '<form class="card answer" id="af" novalidate><h2>' + (existing ? esc(existing.name) + ' さんの回答を修正' : '出欠を入力') + '</h2>' +
-      '<label class="field"><span class="lbl">お名前 <em>必須</em></span><input id="aName" maxlength="40" value="' + esc(existing ? existing.name : Mem.name()) + '" placeholder="例）山田"></label>' +
-      '<div class="field"><span class="lbl">都合の悪い時間を × にしてください</span>' +
-      '<p class="hint">最初はすべて <b class="c-yes">○（参加可）</b> になっています。① 下のボタンで ×（または △・○）を選ぶ → ② マスをなぞる（ドラッグ）とまとめて変わります。日付や時刻の見出しをタップすると、その行・列をまとめて変えられます。</p>' +
-      '<div class="palette-wrap">' + palette + '</div>' +
+      '<div class="ans-top"><label class="field ans-name"><span class="lbl">お名前 <em>必須</em></span><input id="aName" maxlength="40" value="' + esc(existing ? existing.name : Mem.name()) + '" placeholder="例）山田"></label>' +
+      '<div class="field ans-pal"><span class="lbl">塗るマーク（選んでからマスをなぞる）</span><div class="palette-wrap">' + palette + '</div></div></div>' +
+      '<p class="hint ans-hint">最初はすべて <b class="c-yes">○（参加可）</b> です。都合の悪い時間を <b>×</b> でなぞってください（ドラッグでまとめて変更）。日付・時刻の見出しをクリックすると行・列ごと変わります。' +
+      '<button type="button" class="link-btn" id="resetYes">すべて○に戻す</button></p>' +
       (g.dates.length ? gridHtml(g, function (date, i) {
         var v = cells[date][i];
         return '<td class="cell ' + (v < 0 ? 'none' : MK[v].cls) + (i % 2 ? ' half' : '') + '" data-d="' + date + '" data-i="' + i + '">' + (v < 0 ? '' : MK[v].sym) + '</td>';
@@ -941,11 +948,10 @@
           MARKS.map(function (m) { return '<button type="button" class="' + m.cls + '" data-v="' + m.v + '" aria-label="' + m.name + '">' + m.sym + '</button>'; }).join('') +
           '</span></li>';
       }).join('') + '</ul>' : '') +
-      '<div class="row end"><button type="button" class="link-btn" id="resetYes">すべて○に戻す</button></div></div>' +
-      '<label class="field"><span class="lbl">コメント（任意）</span><textarea id="aComment" rows="2" maxlength="500" placeholder="例）19時以降なら参加できます">' + esc(existing ? existing.comment : '') + '</textarea></label>' +
-      '<button type="submit" class="btn primary lg block" id="aSubmit">' + (existing ? '回答を更新する' : '回答する') + '</button>' +
+      '<div class="ans-bottom"><label class="field ans-cmt"><span class="lbl">コメント（任意）</span><textarea id="aComment" rows="2" maxlength="500" placeholder="例）19時以降なら参加できます">' + esc(existing ? existing.comment : '') + '</textarea></label>' +
+      '<div class="ans-actions"><button type="submit" class="btn primary lg block" id="aSubmit">' + (existing ? '回答を更新する' : '回答する') + '</button>' +
       '<div class="row between"><button type="button" class="link-btn" id="aCancel">キャンセル</button>' +
-      (existing ? '<button type="button" class="link-btn danger-text" id="aDelete">この回答を削除</button>' : '') + '</div></form>';
+      (existing ? '<button type="button" class="link-btn danger-text" id="aDelete">この回答を削除</button>' : '') + '</div></div></div></form>';
 
     var table = area.querySelector('table.tl');
 
