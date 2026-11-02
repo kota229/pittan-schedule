@@ -455,3 +455,19 @@ table.tl { width: 100%; table-layout: fixed; }
 
 /* JS 有効時は静的説明を隠す（アプリが描画内容で置き換える。ディープリンク時のちらつき防止） */
 .js .static-intro { display: none; }
+
+/* トップ下部の説明（特長・よくある質問）。JS 有効時はトップ画面だけ表示 */
+.js #about { display: none; }
+.js.home #about { display: block; }
+.about { padding-top: 0; padding-bottom: 8px; }
+.about h2 { font-size: 1.15rem; text-align: center; margin: 12px 0 14px; }
+.features { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; margin-bottom: 28px; }
+@media (max-width: 520px) { .features { grid-template-columns: 1fr; } }
+.feature { background: #fff; border-radius: var(--radius); padding: 14px 16px; box-shadow: var(--shadow); border-top: 3px solid var(--primary); }
+.feature p { color: var(--muted); font-size: .85rem; margin: 4px 0 0; }
+.faq details { background: #fff; border-radius: var(--radius); box-shadow: var(--shadow); margin-bottom: 10px; }
+.faq summary { cursor: pointer; padding: 13px 16px; font-weight: 700; list-style: none; display: flex; justify-content: space-between; gap: 12px; }
+.faq summary::-webkit-details-marker { display: none; }
+.faq summary::after { content: '＋'; color: var(--primary-dark); flex: none; }
+.faq details[open] summary::after { content: '－'; }
+.faq details p { margin: 0; padding: 0 16px 14px; color: var(--muted); font-size: .9rem; }

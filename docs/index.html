@@ -12,17 +12,21 @@
   </script>
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="theme-color" content="#14a38b">
-  <title>ぴったん｜かんたん日程調整</title>
+  <title>ぴったん｜無料・登録不要のかんたん日程調整</title>
   <meta name="description" content="ぴったんは無料・登録不要の日程調整ツールです。カレンダーで候補日を選んでURLを共有するだけで、参加者はログインなしで○△×を入力。集計表で全員の都合が合う日がひと目でわかり、決定した日程はGoogleカレンダーにも追加できます。">
   <link rel="canonical" href="https://pittan.pages.dev/">
   <meta name="google-site-verification" content="-_jC5ezIlzBE6450qA7tClVLwGv0vzCZ7E5_uVpUMUo" />
-  <meta property="og:title" content="ぴったん｜かんたん日程調整">
+  <meta property="og:title" content="ぴったん｜無料・登録不要のかんたん日程調整">
   <meta property="og:description" content="ぴったんは無料・登録不要の日程調整ツールです。カレンダーで候補日を選んでURLを共有するだけで、参加者はログインなしで○△×を入力。集計表で全員の都合が合う日がひと目でわかり、決定した日程はGoogleカレンダーにも追加できます。">
   <meta property="og:url" content="https://pittan.pages.dev/">
   <meta property="og:type" content="website">
   <meta property="og:site_name" content="ぴったん">
   <meta property="og:locale" content="ja_JP">
-  <meta name="twitter:card" content="summary">
+  <meta property="og:image" content="https://pittan.pages.dev/ogp.png">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta property="og:image:alt" content="ぴったん — 無料・登録不要のかんたん日程調整">
+  <meta name="twitter:card" content="summary_large_image">
   <script type="application/ld+json">
   {
     "@context": "https://schema.org",
@@ -38,7 +42,7 @@
   }
   </script>
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%2314a38b'/%3E%3Crect x='14' y='18' width='36' height='32' rx='5' fill='%23fff'/%3E%3Crect x='14' y='18' width='36' height='9' rx='4' fill='%23ffd166'/%3E%3Cpath d='M24 38l6 6 11-12' stroke='%2314a38b' stroke-width='5' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
-  <link rel="stylesheet" href="css/style.css?v=9">
+  <link rel="stylesheet" href="css/style.css?v=10">
 </head>
 <body>
   <header class="topbar">
@@ -63,6 +67,26 @@
       <noscript><p class="center">ご利用には JavaScript を有効にしてください。</p></noscript>
     </div>
   </main>
+  <!-- トップ画面の下に出す説明（静的HTML。JSなしでも読める。アプリはトップ画面のときだけ表示する） -->
+  <div id="about" class="container about">
+    <section>
+      <h2>無料・登録不要の日程調整「ぴったん」の特長</h2>
+      <div class="features">
+        <div class="feature"><b>完全無料・登録不要</b><p>幹事も参加者もアカウント登録やログインは不要。アプリのインストールもいりません。</p></div>
+        <div class="feature"><b>URLを送るだけ</b><p>候補日を作ったら、LINEやメールでURLを共有。参加者は ○△× をタップするだけで回答できます。</p></div>
+        <div class="feature"><b>時間帯まで調整できる</b><p>日付だけでなく30分単位で空いている時間を集計し、全員の都合が合う時間帯をひと目で表示します。</p></div>
+        <div class="feature"><b>内容は暗号化して保存</b><p>イベント名や回答はブラウザで暗号化され、鍵はURLにだけ含まれます。運営者も中身を読めません。</p></div>
+      </div>
+    </section>
+    <section class="faq">
+      <h2>よくある質問</h2>
+      <details><summary>本当に無料ですか？</summary><p>はい、無料です。利用料はかからず、回数の制限もありません。</p></details>
+      <details><summary>参加者の登録やアプリは必要ですか？</summary><p>どちらも不要です。共有されたURLをスマホやパソコンのブラウザで開き、名前と ○△× を入れるだけで回答できます。</p></details>
+      <details><summary>トントンや調整さんの代わりに使えますか？</summary><p>使えます。候補日を出してURLで出欠を集める、という同じ流れで日程調整ができます。ぴったんは時間帯（30分単位）の重なりが表でわかり、入力内容を暗号化して保存するのが特長です。</p></details>
+      <details><summary>URLをなくしたらどうなりますか？</summary><p>内容は暗号化されていて、鍵はURLにしか含まれないため、運営者も含め誰も復元できません。作成時に表示されるURLを必ず保存してください。</p></details>
+      <details><summary>決まった日程をカレンダーに入れられますか？</summary><p>はい。日程を決定すると、Googleカレンダーへの追加や、iPhone・Outlook などで使えるカレンダー用ファイル（.ics）のダウンロードができます。</p></details>
+    </section>
+  </div>
   <footer class="footer">ぴったん — 知り合い同士のための日程調整</footer>
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
 
@@ -70,6 +94,6 @@
   <script src="js/core.js?v=8"></script>
   <script src="js/secure.js?v=8"></script>
   <script src="js/api.js?v=8"></script>
-  <script src="js/app.js?v=8"></script>
+  <script src="js/app.js?v=9"></script>
 </body>
 </html>

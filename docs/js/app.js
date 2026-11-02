@@ -140,6 +140,8 @@
     window.scrollTo(0, 0);
     $app.className = 'container';
     var parts = location.hash.replace(/^#\/?/, '').split('/').filter(Boolean);
+    // トップ画面のときだけ下部の説明（#about）を表示する
+    document.documentElement.classList.toggle('home', !parts.length || !/^(new|e)$/.test(parts[0]));
     if (parts[0] === 'new') return formView(null);
     if (parts[0] === 'e' && parts[1]) {
       var refParts = parts[1].split('.');
@@ -160,7 +162,7 @@
 
   /* ---------- トップ ---------- */
   function homeView() {
-    document.title = 'ぴったん｜かんたん日程調整';
+    document.title = 'ぴったん｜無料・登録不要のかんたん日程調整';
     var recent = Mem.recent();
     var html = '<section class="hero">' +
       '<h1>みんなの都合、<br class="sp">ぴったり合わせよう。</h1>' +
