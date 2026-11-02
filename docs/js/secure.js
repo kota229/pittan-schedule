@@ -132,18 +132,23 @@ var PittanSecure = (function () {
     };
   }
 
-  // 自動削除の目安日（平文で保存）：最後の候補日・締切のうち遅い方＋30日。日付のない候補だけなら今日＋180日。日単位。
+  // 自動削除の目安日（平文で保存）：最後の候補日・締切のうち遅い方（過去なら今日）＋30日を、その月の月末に丸める。
+  // 日付のない候補だけなら今日＋180日の月末。月末に丸めて、候補日そのものが推測されにくいようにする。
   function addDays(ymd, n) {
     var p = ymd.split('-');
     var d = new Date(Date.UTC(+p[0], +p[1] - 1, +p[2] + n));
     return d.toISOString().slice(0, 10);
   }
+  function monthEnd(ymd) {
+    var p = ymd.split('-');
+    return new Date(Date.UTC(+p[0], +p[1], 0)).toISOString().slice(0, 10);
+  }
   function deleteAfter(ev, today) {
     var last = '';
     ev.candidates.forEach(function (c) { if (c.date && c.date > last) last = c.date; });
     if (ev.deadline && ev.deadline > last) last = ev.deadline;
-    if (!last) return addDays(today, 180);
-    return addDays(last > today ? last : today, 30);
+    if (!last) return monthEnd(addDays(today, 180));
+    return monthEnd(addDays(last > today ? last : today, 30));
   }
   function localToday() {
     var d = new Date();
@@ -184,9 +189,10 @@ var PittanSecure = (function () {
     function saveEnc(id, adminToken, ev) {
       var c = need(id);
       return sealEvent(c.key, ev).then(function (blob) {
-        return call('update', { id: id, adminToken: adminToken, blob: blob });
-      }).then(function () {
+        return call('update', { id: id, adminToken: adminToken, blob: blob, baseUpdatedAt: c.updatedAt });
+      }).then(function (res) {
         c.event = ev;
+        c.updatedAt = res.event.updatedAt;
         return { event: withId(id, ev, true) };
       });
     }
@@ -203,7 +209,7 @@ var PittanSecure = (function () {
             return sealEvent(key, ev).then(function (blob) {
               return call('create', { blob: blob });
             }).then(function (res) {
-              ctx[res.id] = { key: key, event: ev };
+              ctx[res.id] = { key: key, event: ev, updatedAt: res.event.updatedAt };
               return { id: res.id, adminToken: res.adminToken, key: keyString, event: withId(res.id, ev, true) };
             });
           });
@@ -214,7 +220,9 @@ var PittanSecure = (function () {
         return call('get', { id: id, adminToken: adminToken || undefined }).then(function (res) {
           var env = res.event || {};
           if (env.v === undefined) {
-            // 旧来の平文データ
+            // 旧来の平文データ。鍵付きURLなのに平文が返ってきた場合は、サーバー側のすり替え（平文で入力させる
+            // ダウングレード）の可能性があるため拒否する。
+            if (keyString) throw new Error(URL_ERROR);
             delete ctx[id];
             plain[id] = true;
             res.event.encrypted = false;
@@ -226,7 +234,7 @@ var PittanSecure = (function () {
             return decrypt(key, env.ct, AAD_EVENT).then(function (raw) {
               var ev;
               try { ev = cleanEvent(raw, null); } catch (e) { throw new Error(URL_ERROR); }
-              ctx[id] = { key: key, event: ev };
+              ctx[id] = { key: key, event: ev, updatedAt: env.updatedAt };
               var broken = 0;
               return Promise.all((res.answers || []).map(function (a) {
                 if (!a || a.v !== V || typeof a.id !== 'string') { broken++; return null; }

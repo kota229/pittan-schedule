@@ -100,7 +100,7 @@ async function run(browser, demo) {
     assert.strictEqual(await guest.locator('#openAnswer').count(), 0);
     assert.strictEqual(await guest.locator('text=候補・内容を編集').count(), 0); // 参加者には幹事操作が出ない
   }
-  await guest.screenshot({ path: path.join(process.env.SHOT_DIR || '.', label + '-result.png'), fullPage: true });
+  await guest.screenshot({ path: path.join(process.env.SHOT_DIR || require('os').tmpdir(), label + '-result.png'), fullPage: true });
 
   // 5. 鍵なし・鍵違いはわかりやすいエラー
   const bad = await newPage(gctx);

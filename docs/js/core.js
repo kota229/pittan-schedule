@@ -23,7 +23,7 @@ var PittanCore = (function () {
   var ENC_V = 'e1';
   var CT_RE = /^[A-Za-z0-9_-]+$/;
   var CT_MIN = 38; // IV 12バイト + 認証タグ 16バイト の base64url 長
-  var CT_MAX = { event: 120000, answer: 30000 };
+  var CT_MAX = { event: 48000, answer: 30000 }; // スプレッドシートの1セル上限（5万文字）に収める
 
   function randomId(len) {
     var s = '';
@@ -212,6 +212,8 @@ var PittanCore = (function () {
         var rec = loadAdmin(p);
         if (isEnc(rec.data)) {
           var enc = sanitizeBlob(p.blob, 'event');
+          // 楽観的排他：読み込んだ時点から他の端末で更新されていたら上書きしない
+          if (p.baseUpdatedAt !== rec.data.updatedAt) fail('他の端末で内容が更新されています。ページを再読み込みしてからもう一度操作してください');
           rec.data.ct = enc.ct;
           rec.data.deleteAfter = enc.deleteAfter;
           save(p.id, rec);

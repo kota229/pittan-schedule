@@ -76,10 +76,10 @@ const URL_ERR = /URLが不完全か、正しくありません/;
   try { await S.decrypt(k2, ct, S.AAD_EVENT); } catch (e) { assert.ok(!e.message.includes(k1s) && !e.message.includes('忘年会')); }
 
   /* ---------- 削除してよい日付（平文） ---------- */
-  assert.strictEqual(S.deleteAfter({ candidates: [{ date: '2026-12-01' }, { date: '2026-12-24' }, { label: 'x' }], deadline: '' }, '2026-11-02'), '2027-01-23');
-  assert.strictEqual(S.deleteAfter({ candidates: [{ date: '2026-12-01' }], deadline: '2027-01-10' }, '2026-11-02'), '2027-02-09');
-  assert.strictEqual(S.deleteAfter({ candidates: [{ date: '2026-10-01' }], deadline: '' }, '2026-11-02'), '2026-12-02');
-  assert.strictEqual(S.deleteAfter({ candidates: [{ label: '平日夜' }], deadline: '' }, '2026-11-02'), '2027-05-01');
+  assert.strictEqual(S.deleteAfter({ candidates: [{ date: '2026-12-01' }, { date: '2026-12-24' }, { label: 'x' }], deadline: '' }, '2026-11-02'), '2027-01-31');
+  assert.strictEqual(S.deleteAfter({ candidates: [{ date: '2026-12-01' }], deadline: '2027-01-10' }, '2026-11-02'), '2027-02-28');
+  assert.strictEqual(S.deleteAfter({ candidates: [{ date: '2026-10-01' }], deadline: '' }, '2026-11-02'), '2026-12-31');
+  assert.strictEqual(S.deleteAfter({ candidates: [{ label: '平日夜' }], deadline: '' }, '2026-11-02'), '2027-05-31');
 
   /* ---------- Code.gs 越しの一連の流れ（幹事・参加者・第三者） ---------- */
   const gas = makeGas();
@@ -164,7 +164,7 @@ const URL_ERR = /URLが不完全か、正しくありません/;
     for (const s of SECRET) assert.ok(!body.includes(s), 'plaintext leaked in payload: ' + s);
   }
   // 暗号化イベントへの送信は id / adminToken / answerId / blob(v, ct, deleteAfter) のみ
-  const allowed = new Set(['action', 'id', 'adminToken', 'answerId', 'blob', 'v', 'ct', 'deleteAfter']);
+  const allowed = new Set(['action', 'id', 'adminToken', 'answerId', 'blob', 'v', 'ct', 'deleteAfter', 'baseUpdatedAt']);
   for (const body of net.sent) JSON.parse(body, (k, v) => { if (k !== '') assert.ok(allowed.has(k), 'unexpected field: ' + k); return v; });
 
   /* ---------- スプレッドシートに残るもの ---------- */
@@ -175,7 +175,7 @@ const URL_ERR = /URLが不完全か、正しくありません/;
     for (const s of SECRET) assert.ok(!text.includes(s), 'plaintext in sheet: ' + s);
   }
   assert.deepStrictEqual(Object.keys(JSON.parse(evRows[0][2])).sort(), ['createdAt', 'ct', 'deleteAfter', 'updatedAt', 'v']);
-  assert.strictEqual(JSON.parse(evRows[0][2]).deleteAfter, '2027-01-02');
+  assert.strictEqual(JSON.parse(evRows[0][2]).deleteAfter, '2027-01-31');
   for (const row of anRows) assert.deepStrictEqual(Object.keys(JSON.parse(row[2])).sort(), ['createdAt', 'ct', 'id', 'updatedAt', 'v']);
 
   /* ---------- サーバー側で暗号文を差し替えられても検出する ---------- */
@@ -201,9 +201,18 @@ const URL_ERR = /URLが不完全か、正しくありません/;
   ng({ action: 'create', blob: { v: 'e1', ct: 'short' } }, /形式/);
   ng({ action: 'create', blob: { v: 'e2', ct: 'A'.repeat(60) } }, /形式/);
   ng({ action: 'create', blob: { v: 'e1', ct: '<script>'.repeat(10) } }, /形式/);
-  ng({ action: 'create', blob: { v: 'e1', ct: 'A'.repeat(120001) } }, /大きすぎ/);
+  ng({ action: 'create', blob: { v: 'e1', ct: 'A'.repeat(60000) } }, /大きすぎ/);
   ng({ action: 'answer', id, answerId: 'a1', blob: { v: 'e1', ct: 'A'.repeat(30001) } }, /大きすぎ/);
   ng({ action: 'answer', id, answerId: '../x', blob: { v: 'e1', ct: 'A'.repeat(60) } }, /回答ID/);
+  // 古い内容のままの上書き（別タブ・別端末）を検出する
+  const tabA = net.repo(), tabB = net.repo();
+  await tabA.get(id, key, adminToken); await tabB.get(id, key, adminToken);
+  await new Promise(r => setTimeout(r, 5));
+  await tabA.setClosed(id, adminToken, false);
+  await rejects(tabB.setClosed(id, adminToken, true), /他の端末で内容が更新/);
+  await tabA.setClosed(id, adminToken, true); // 自分の更新後は続けて操作できる
+  ng({ action: 'update', id, adminToken, blob: { v: 'e1', ct: 'A'.repeat(60) } }, /他の端末/);
+  ng({ action: 'create', blob: { v: 'e1', ct: 'A'.repeat(48001) } }, /大きすぎ/);
   ng({ action: 'update', id, adminToken: 'bad', blob: { v: 'e1', ct: 'A'.repeat(60) } }, /管理用URL/);
   assert.ok(!gas.post({ action: 'create', blob: { v: 'e1', ct: 'A'.repeat(60), deleteAfter: '<x>' } }).data.event.deleteAfter);
 
@@ -213,8 +222,13 @@ const URL_ERR = /URLが不完全か、正しくありません/;
   let lg = await legacy.get(old.id, undefined);
   assert.strictEqual(lg.event.title, '旧イベント');
   assert.strictEqual(lg.event.encrypted, false);
-  lg = await legacy.get(old.id, S.generateKeyString()); // 鍵が付いていても平文データはそのまま読める
-  assert.strictEqual(lg.event.title, '旧イベント');
+  // 鍵付きURLで平文が返ってきたら拒否（サーバーによる平文へのすり替え＝ダウングレード対策）
+  await rejects(net.repo().get(old.id, S.generateKeyString()), URL_ERR);
+  await rejects(net.repo().get(id, key).then(() => { // 暗号化イベントを平文に偽装されたケース
+    const row = gas.sheets.events.rows.find(r => r[0] === id); const saved = row[2];
+    row[2] = JSON.stringify({ title: '偽物', candidates: [{ id: 'c1', date: '2026-12-03' }], createdAt: 'x', updatedAt: 'x' });
+    return net.repo().get(id, key).finally(() => { row[2] = saved; });
+  }), URL_ERR);
   await legacy.answer(old.id, '', { name: '旧の人', votes: { [lg.event.candidates[1].id]: 2 } });
   lg = await legacy.get(old.id, undefined, old.adminToken);
   assert.strictEqual(lg.answers[0].name, '旧の人');
