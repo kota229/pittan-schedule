@@ -54,3 +54,6 @@ var Api = (function () {
 
   return { call: call, isDemo: demo };
 })();
+
+/* 画面からのデータ操作はすべてこの Repo を通す（暗号化イベントはブラウザで暗号化・復号。デモモードも同じ経路） */
+var Repo = PittanSecure.createRepo(Api.call);

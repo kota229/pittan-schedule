@@ -54,8 +54,12 @@
     });
   }
   function baseUrl() { return location.href.split('#')[0]; }
-  function eventUrl(id) { return baseUrl() + '#/e/' + id; }
-  function adminUrl(id, token) { return baseUrl() + '#/e/' + id + '/admin/' + token; }
+  // 暗号化された日程調整の鍵は URL のハッシュ（#/e/<id>.<鍵>）にだけ置く。サーバーへは送らない。
+  // Keys は現在のハッシュから読み取った鍵（メモリ上のみ）。
+  var Keys = {};
+  function ref(id) { return Keys[id] ? id + '.' + Keys[id] : id; }
+  function eventUrl(id) { return baseUrl() + '#/e/' + ref(id); }
+  function adminUrl(id, token) { return baseUrl() + '#/e/' + ref(id) + '/admin/' + token; }
 
   /* ---------- ブラウザ内の記憶 ---------- */
   function lsGet(k, def) { try { var v = JSON.parse(localStorage.getItem(k)); return v == null ? def : v; } catch (e) { return def; } }
@@ -70,7 +74,8 @@
     recent: function () { return lsGet('pittan.recent', []); },
     touch: function (ev) {
       var l = Mem.recent().filter(function (r) { return r.id !== ev.id; });
-      l.unshift({ id: ev.id, title: ev.title, at: Date.now() });
+      // 鍵はこの端末の localStorage にだけ保存（「最近の日程調整」から開けるように）
+      l.unshift({ id: ev.id, k: Keys[ev.id] || '', title: ev.title, at: Date.now() });
       lsSet('pittan.recent', l.slice(0, 30));
     },
     forget: function (id) {
@@ -137,10 +142,12 @@
     var parts = location.hash.replace(/^#\/?/, '').split('/').filter(Boolean);
     if (parts[0] === 'new') return formView(null);
     if (parts[0] === 'e' && parts[1]) {
-      var id = parts[1];
+      var refParts = parts[1].split('.');
+      var id = refParts[0];
+      if (refParts[1]) Keys[id] = refParts[1]; else delete Keys[id];
       if (parts[2] === 'admin' && parts[3]) {
         Mem.setAdmin(id, parts[3]);
-        history.replaceState(null, '', '#/e/' + id);
+        history.replaceState(null, '', '#/e/' + ref(id));
         return eventView(id, { adminLanding: true });
       }
       if (parts[2] === 'edit') return editView(id);
@@ -169,7 +176,7 @@
     if (recent.length) {
       html += '<section class="card"><h2>最近の日程調整</h2><ul class="recent">' + recent.map(function (r) {
         var admin = Mem.adminToken(r.id);
-        return '<li><a href="#/e/' + esc(r.id) + '">' + esc(r.title) + '</a>' +
+        return '<li><a href="#/e/' + esc(r.id + (r.k ? '.' + r.k : '')) + '">' + esc(r.title) + '</a>' +
           (admin ? '<span class="chip">幹事</span>' : '') +
           '<button class="icon-btn" data-forget="' + esc(r.id) + '" title="履歴から消す">×</button></li>';
       }).join('') + '</ul><p class="hint">この端末で作成・閲覧したものだけが表示されます。</p></section>';
@@ -192,7 +199,7 @@
     var token = Mem.adminToken(id);
     if (!token) return errorView('編集するには、幹事用（管理用）URLを開いてください。');
     loading();
-    Api.call('get', { id: id, adminToken: token }).then(function (res) {
+    Repo.get(id, Keys[id], token).then(function (res) {
       if (!res.isAdmin) return errorView('管理用URLが正しくありません。');
       formView(res.event, token);
     }, function (e) { errorView(e.message); });
@@ -226,7 +233,7 @@
     }
 
     $app.innerHTML =
-      '<div class="page-head"><a href="' + (editing ? '#/e/' + esc(ev.id) : '#/') + '" class="back">‹ 戻る</a>' +
+      '<div class="page-head"><a href="' + (editing ? '#/e/' + esc(ref(ev.id)) : '#/') + '" class="back">‹ 戻る</a>' +
       '<h1>' + (editing ? '日程調整を編集' : '日程調整をつくる') + '</h1></div>' +
       '<form id="f" class="form" novalidate>' +
       '<section class="card"><h2 class="sec"><span class="sec-num">1</span>イベントの内容</h2>' +
@@ -522,16 +529,17 @@
       var btn = document.getElementById('submit');
       busy(btn, true, editing ? '保存中…' : '作成中…');
       var p = editing
-        ? Api.call('update', { id: ev.id, adminToken: token, event: payload })
-        : Api.call('create', { event: payload });
+        ? Repo.update(ev.id, token, payload)
+        : Repo.create(payload);
       p.then(function (res) {
         if (editing) {
           toast('保存しました');
-          location.hash = '#/e/' + ev.id;
+          location.hash = '#/e/' + ref(ev.id);
         } else {
+          Keys[res.id] = res.key;
           Mem.setAdmin(res.id, res.adminToken);
           Mem.touch(res.event);
-          location.hash = '#/e/' + res.id + '/done';
+          location.hash = '#/e/' + ref(res.id) + '/done';
         }
       }, function (err) { busy(btn, false); toast(err.message, true); });
     };
@@ -548,13 +556,15 @@
     document.title = '作成しました｜ぴったん';
     $app.innerHTML = '<div class="card center done">' +
       '<div class="done-icon">✓</div><h1>日程調整を作成しました</h1>' +
-      '<p>下のURLを参加者に共有してください。</p></div>' +
+      '<p>下のURLを参加者に共有してください。</p>' +
+      (Keys[id] ? '<p class="hint warn key-warn">内容は暗号化して保存され、URLの末尾が「鍵」になっています。<br><b>このURLをなくすと、運営者も含め誰も内容を復元できません。必ず保存してください。</b></p>' : '') +
+      '</div>' +
       '<div class="card">' + shareBox(url, '参加者用URL（みんなに送る）') + '</div>' +
       (aurl ? '<div class="card admin-url"><h2>幹事用URL（あなただけ）</h2>' +
         '<p class="hint warn">このURLから候補の編集・日程の決定・削除ができます。<b>他の人には送らず</b>、メモやブックマークに保存してください（この端末では自動で記憶されます）。</p>' +
         '<div class="url-row"><input readonly value="' + esc(aurl) + '"><button class="btn" data-copy-admin>コピー</button></div>' +
         '<a class="link-btn" href="mailto:?subject=' + encodeURIComponent('【幹事用】日程調整の管理URL') + '&body=' + encodeURIComponent(aurl) + '">自分にメールで送る</a></div>' : '') +
-      '<a class="btn primary lg block" href="#/e/' + esc(id) + '">日程調整ページを開く</a>';
+      '<a class="btn primary lg block" href="#/e/' + esc(ref(id)) + '">日程調整ページを開く</a>';
     bindShare($app);
     var b = $app.querySelector('[data-copy-admin]');
     if (b) b.onclick = function () { copy(aurl, '幹事用URL'); };
@@ -633,7 +643,7 @@
   function eventView(id, opts) {
     loading();
     var token = Mem.adminToken(id);
-    Api.call('get', { id: id, adminToken: token || undefined }).then(function (res) {
+    Repo.get(id, Keys[id], token).then(function (res) {
       if (token && !res.isAdmin) {
         if (opts.adminLanding) toast('管理用URLが正しくありません', true);
         token = '';
@@ -740,8 +750,11 @@
     $app.className = 'container wide';
 
     var html = '';
-    if (res.apiVersion !== 2) {
-      html += '<div class="card warn-box">サーバー（Apps Script）が古いバージョンです。README の「サーバー側のコードを更新したとき」の手順で更新してください。更新するまで時間帯の回答が保存されません。</div>';
+    if (!(res.apiVersion >= 3)) {
+      html += '<div class="card warn-box">サーバー（Apps Script）が古いバージョンです。README の「サーバー側のコードを更新したとき」の手順で更新してください。更新するまで新しい日程調整を作成できません。</div>';
+    }
+    if (res.brokenAnswers) {
+      html += '<div class="card warn-box">読み取れない回答が ' + res.brokenAnswers + ' 件あり、表示していません（データが壊れているか、改ざんされた可能性があります）。</div>';
     }
     if (confirmed) {
       html += '<div class="confirmed"><div class="c-label">日程が決まりました</div><div class="c-date">' + esc(fmtCand(confirmed)) + '</div>' +
@@ -833,7 +846,7 @@
 
     if (isAdmin) {
       html += '<div class="card admin"><h2>幹事メニュー</h2><div class="admin-btns">' +
-        '<a class="btn" href="#/e/' + esc(ev.id) + '/edit">候補・内容を編集</a>' +
+        '<a class="btn" href="#/e/' + esc(ref(ev.id)) + '/edit">候補・内容を編集</a>' +
         '<button class="btn" id="toggleClose">' + (ev.closed ? '回答の受付を再開' : '回答の受付を終了') + '</button>' +
         (confirmed ? '<button class="btn" id="unconfirm">決定を取り消す</button>' : '') +
         '<button class="btn" id="copyAdmin">幹事用URLをコピー</button>' +
@@ -847,7 +860,7 @@
 
     var reload = function () { eventView(ev.id, {}); };
     var doConfirm = function (c) {
-      return Api.call('confirm', { id: ev.id, adminToken: token, confirmed: c }).then(function () {
+      return Repo.confirm(ev.id, token, c).then(function () {
         toast(c ? '日程を決定しました' : '決定を取り消しました'); reload();
       }, function (e) { toast(e.message, true); });
     };
@@ -893,21 +906,21 @@
           }
         };
       });
-      var act = function (action, params, msg) {
-        return Api.call(action, Object.assign({ id: ev.id, adminToken: token }, params)).then(function () {
+      var act = function (p, msg) {
+        return p.then(function () {
           toast(msg); reload();
         }, function (e) { toast(e.message, true); });
       };
       var un = document.getElementById('unconfirm');
       if (un) un.onclick = function () { doConfirm(null); };
       document.getElementById('toggleClose').onclick = function () {
-        act('setClosed', { closed: !ev.closed }, ev.closed ? '受付を再開しました' : '受付を終了しました');
+        act(Repo.setClosed(ev.id, token, !ev.closed), ev.closed ? '受付を再開しました' : '受付を終了しました');
       };
       document.getElementById('copyAdmin').onclick = function () { copy(adminUrl(ev.id, token), '幹事用URL'); };
       document.getElementById('removeEv').onclick = function () {
         confirmDialog('この日程調整を削除しますか？\n回答もすべて消え、元に戻せません。', '削除する', true).then(function (ok) {
           if (!ok) return;
-          Api.call('remove', { id: ev.id, adminToken: token }).then(function () {
+          Repo.remove(ev.id, token).then(function () {
             Mem.forget(ev.id); toast('削除しました'); location.hash = '#/';
           }, function (e) { toast(e.message, true); });
         });
@@ -1027,7 +1040,7 @@
     if (del) del.onclick = function () {
       confirmDialog(existing.name + ' さんの回答を削除しますか？', '削除する', true).then(function (ok) {
         if (!ok) return;
-        Api.call('deleteAnswer', { id: ev.id, answerId: existing.id, adminToken: token || undefined }).then(function () {
+        Repo.deleteAnswer(ev.id, token, existing.id, !!token).then(function () {
           toast('回答を削除しました'); onDone();
         }, function (e) { toast(e.message, true); });
       });
@@ -1050,11 +1063,7 @@
       var go = function () {
         var btn = document.getElementById('aSubmit');
         busy(btn, true);
-        Api.call('answer', {
-          id: ev.id,
-          adminToken: token || undefined,
-          answer: { id: existing ? existing.id : undefined, name: name, comment: document.getElementById('aComment').value, votes: payloadVotes() },
-        }).then(function (r) {
+        Repo.answer(ev.id, token, { id: existing ? existing.id : undefined, name: name, comment: document.getElementById('aComment').value, votes: payloadVotes() }, !!token).then(function (r) {
           Mem.addMine(ev.id, r.answer.id);
           if (!existing) Mem.setName(name);
           toast(existing ? '回答を更新しました' : '回答しました。ありがとうございます！');
@@ -1087,7 +1096,7 @@
   function gcalUrl(ev, c) {
     var r = calRange(c);
     return 'https://calendar.google.com/calendar/render?action=TEMPLATE&text=' + encodeURIComponent(ev.title) +
-      '&dates=' + r.s + '/' + r.e + '&ctz=Asia/Tokyo&details=' + encodeURIComponent((ev.memo ? ev.memo + '\n\n' : '') + eventUrl(ev.id));
+      '&dates=' + r.s + '/' + r.e + '&ctz=Asia/Tokyo&details=' + encodeURIComponent((ev.memo ? ev.memo + '\n\n' : '') + (ev.encrypted ? '' : eventUrl(ev.id)));
   }
   function downloadIcs(ev, c) {
     var r = calRange(c);
