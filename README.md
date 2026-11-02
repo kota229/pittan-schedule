@@ -2,7 +2,9 @@
 
 「トントン」のような日程調整サイトです。知り合い同士で何度でも使えます。
 
-- **画面（フロント）**: GitHub Pages（`docs/` フォルダ）
+- **公開URL**: https://pittan.pages.dev/ （Cloudflare Pages。`main` への push で `docs/` を自動デプロイ）
+  - 旧URL https://kota229.github.io/pittan-schedule/ は `#/...` を引き継いで新URLへ自動転送されます
+- **画面（フロント）**: `docs/` フォルダの静的ファイル（ビルドなし）
 - **データ保存（サーバー）**: Google Apps Script ＋ Google スプレッドシート（あなたの Google ドライブに保存）
 - 費用はかかりません。参加者の登録・ログインも不要です。
 

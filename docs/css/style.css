@@ -452,3 +452,6 @@ table.tl { width: 100%; table-layout: fixed; }
   .matrix .p-row td, .matrix .sum-row td { height: 32px; }
 }
 #answerArea { scroll-margin-top: 64px; }
+
+/* JS 有効時は静的説明を隠す（アプリが描画内容で置き換える。ディープリンク時のちらつき防止） */
+.js .static-intro { display: none; }
