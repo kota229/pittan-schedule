@@ -217,7 +217,7 @@
       days: {},
       free: [],
       useTime: true,
-      defaults: [{ start: '19:00', end: '21:00' }],
+      defaults: [{ start: '10:00', end: '18:00' }],
       month: new Date(now.getFullYear(), now.getMonth(), 1),
     };
     if (editing) {
@@ -414,7 +414,7 @@
         '<div class="def-actions"><button type="button" class="link-btn" id="addDef">＋ 時間帯を追加</button>' +
         '<button type="button" class="btn sm" id="applyAll"' + (sortedDates().length ? '' : ' disabled') + '>選択中の全日付をこの時間にする</button></div></div>';
       bindSlotRows($defaults, function () { return st.defaults; }, function () {
-        if (!st.defaults.length) st.defaults.push({ start: '19:00', end: '21:00' });
+        if (!st.defaults.length) st.defaults.push({ start: '10:00', end: '18:00' });
         renderDefaults();
       });
       document.getElementById('addDef').onclick = function () {
